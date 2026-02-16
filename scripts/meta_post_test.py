@@ -24,6 +24,16 @@ GRAPH_BASE = "https://graph.facebook.com/v24.0"
 REQUIRED_KEYS = ("FACEBOOK_PAGE_ID", "FACEBOOK_PAGE_ACCESS_TOKEN")
 
 
+def mask_secret(value: str, visible: int = 6) -> str:
+    """Mask token: 6 chars + ... + 6 chars. Never print full value."""
+    if not value or not value.strip():
+        return "(empty)"
+    s = value.strip()
+    if len(s) <= visible * 2:
+        return "***"
+    return f"{s[:visible]}...{s[-visible:]}"
+
+
 def get_env() -> dict:
     """Lấy ENV; thiếu thì báo lỗi."""
     env = {}
@@ -35,7 +45,8 @@ def get_env() -> dict:
         else:
             env[key] = val.strip()
     if missing:
-        print(f"[ERROR] Missing env: {', '.join(missing)}. Run meta_env_doctor.py to check.")
+        print(f"[ERROR] Thieu bien moi truong: {', '.join(missing)}")
+        print("Chay: python scripts/meta_env_doctor.py de xem huong dan.")
         sys.exit(1)
     return env
 
@@ -60,7 +71,7 @@ def main() -> int:
 
     print("Sending POST to Page feed...")
     print(f"  Page ID: {page_id}")
-    print(f"  Message: {args.message[:50]}{'...' if len(args.message) > 50 else ''}")
+    print(f"  Message: {args.message}")
 
     try:
         r = requests.post(url, data=payload, timeout=15)
@@ -68,16 +79,15 @@ def main() -> int:
 
         if r.status_code == 200 and "id" in data:
             post_id = data["id"]
-            print(f"\n[OK] Post created. post_id: {post_id}")
+            print(f"[OK] Post created. post_id: {post_id}")
             return 0
 
-        # Xử lý lỗi Meta (code 200, 190, 10 thường gặp)
         err = data.get("error", {})
         code = err.get("code")
         msg = err.get("message", str(data))
         subcode = err.get("error_subcode")
 
-        print(f"\n[FAIL] HTTP {r.status_code}")
+        print(f"[FAIL] HTTP {r.status_code}")
         print(f"  error code:    {code}")
         print(f"  error message: {msg}")
         if subcode is not None:

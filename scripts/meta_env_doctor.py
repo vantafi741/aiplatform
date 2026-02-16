@@ -1,6 +1,6 @@
 """
 Meta/Facebook ENV doctor: check Meta env vars and print where to get each key.
-Never logs full tokens (mask first/last 6 chars). Run: python scripts/meta_env_doctor.py
+Never logs full tokens (mask 6 chars + ... + 6 chars). Run: python scripts/meta_env_doctor.py
 """
 from pathlib import Path
 import os
@@ -19,7 +19,12 @@ REQUIRED_KEYS = (
     "FACEBOOK_PAGE_ID",
     "FACEBOOK_PAGE_ACCESS_TOKEN",
 )
-OPTIONAL_KEYS = ("META_BUSINESS_ID", "META_SYSTEM_USER_ID")
+OPTIONAL_KEYS = (
+    "META_BUSINESS_ID",
+    "META_SYSTEM_USER_ID",
+    "WEBHOOK_VERIFY_TOKEN",
+    "WEBHOOK_SECRET",
+)
 
 GUIDANCE = {
     "META_APP_ID": "Meta App dashboard -> Settings -> Basic -> App ID",
@@ -28,10 +33,13 @@ GUIDANCE = {
     "META_SYSTEM_USER_ID": "Business Settings -> Users -> System Users -> ID (long-lived token)",
     "FACEBOOK_PAGE_ID": "Page About -> Page ID; or /me/accounts in Graph Explorer",
     "FACEBOOK_PAGE_ACCESS_TOKEN": "Graph Explorer -> Get Token -> Get Page Access Token; or System User token",
+    "WEBHOOK_VERIFY_TOKEN": "Custom string for Meta webhook verification",
+    "WEBHOOK_SECRET": "Webhook app secret for payload signing",
 }
 
 
-def mask_token(value: str, visible: int = 6) -> str:
+def mask_secret(value: str, visible: int = 6) -> str:
+    """Mask secret/token: 6 chars + ... + 6 chars. Never print full value."""
     if not value or not value.strip():
         return "(empty)"
     s = value.strip()
@@ -41,42 +49,38 @@ def mask_token(value: str, visible: int = 6) -> str:
 
 
 def main() -> int:
-    print("=" * 60)
-    print("Meta/Facebook ENV Doctor")
-    print("=" * 60)
-    print(f"Reading .env from: {REPO_ROOT / '.env'}")
-    print()
-
     missing = []
-    present = []
+    rows = []
 
     for key in REQUIRED_KEYS:
         val = os.environ.get(key)
         if not val or not str(val).strip():
             missing.append(key)
-            present.append((key, None))
+            rows.append((key, "(empty)", "SKIP"))
         else:
             if "SECRET" in key or "TOKEN" in key or "ACCESS" in key:
-                present.append((key, mask_token(val)))
+                rows.append((key, mask_secret(val), "OK"))
             else:
-                present.append((key, val))
+                rows.append((key, val.strip(), "OK"))
 
     for key in OPTIONAL_KEYS:
         val = os.environ.get(key)
         if not val or not str(val).strip():
-            present.append((key, "(not set)"))
+            rows.append((key, "(empty)", "SKIP"))
         else:
             if "SECRET" in key or "TOKEN" in key:
-                present.append((key, mask_token(val)))
+                rows.append((key, mask_secret(val), "OK"))
             else:
-                present.append((key, val))
+                rows.append((key, val.strip(), "OK"))
 
+    print("=" * 60)
+    print("Meta/Facebook ENV Doctor")
+    print("=" * 60)
+    print(f"Reading .env from: {REPO_ROOT / '.env'}")
     print("Env status:")
     print("-" * 60)
-    for key, val in present:
-        status = "OK" if val and val not in ("(empty)", "(not set)") else "MISSING"
-        display = val or "(empty)"
-        print(f"  {key}: {display}  [{status}]")
+    for key, display, tag in rows:
+        print(f"  {key}: {display}  [{tag}]")
     print("-" * 60)
 
     if missing:
@@ -88,9 +92,6 @@ def main() -> int:
         print("\nAfter filling .env run: python scripts/meta_verify.py")
         return 1
 
-    print("\nReference (where to get keys):")
-    for key in REQUIRED_KEYS + OPTIONAL_KEYS:
-        print(f"  * {key}: {GUIDANCE.get(key, '-')}")
     print("\nNext: python scripts/meta_verify.py")
     return 0
 

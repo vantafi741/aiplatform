@@ -150,7 +150,7 @@ python scripts/meta_post_test.py --message "Hello"
 - **meta_verify.py**: xac minh token hop le, page info, scopes; neu sai in huong dan fix.
 - **meta_post_test.py**: dang thu 1 bai len Page; tra ve `post_id` neu thanh cong.
 
-**App Mode:** App o che do Development chi admin/tester thay bai dang; chuyen Live de cong khai. Chi tiet: [docs/META_SETUP.md](docs/META_SETUP.md).
+**App Mode:** App o che do Development chi admin/tester thay bai dang; chuyen Live de cong khai. Chi tiet: [docs/META_SETUP.md](docs/META_SETUP.md). Runbook day du: [README_RUNBOOK.md](README_RUNBOOK.md).
 
 ## Bi?n m?i tr??ng (.env)
 
