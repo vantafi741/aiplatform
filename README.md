@@ -136,9 +136,25 @@ Flow: onboarding -> kb ingest -> planner/generate -> content/generate -> regener
 | POST | /content/{asset_id}/regenerate | Regenerate ? version m?i |
 | PUT | /content/{asset_id}/status | draft \| approved \| rejected |
 
+## Meta Setup Quickstart
+
+Sau khi dien `.env` (Meta keys), chay tu repo root:
+
+```bash
+python scripts/meta_env_doctor.py
+python scripts/meta_verify.py
+python scripts/meta_post_test.py --message "Hello"
+```
+
+- **meta_env_doctor.py**: kiem tra bien META_*, FACEBOOK_*, in huong dan lay key (token duoc mask).
+- **meta_verify.py**: xac minh token hop le, page info, scopes; neu sai in huong dan fix.
+- **meta_post_test.py**: dang thu 1 bai len Page; tra ve `post_id` neu thanh cong.
+
+**App Mode:** App o che do Development chi admin/tester thay bai dang; chuyen Live de cong khai. Chi tiet: [docs/META_SETUP.md](docs/META_SETUP.md).
+
 ## Bi?n m?i tr??ng (.env)
 
-Xem `.env.example`. Quan tr?ng: `DATABASE_URL`, `REDIS_URL`. S4: `CONTENT_CACHE_TTL_SECONDS`, `DEEPSEEK_API_KEY` (t?y ch?n). **Meta/Facebook** (PAGE_ID, PAGE_ACCESS_TOKEN, webhook): xem [docs/META_SETUP.md](docs/META_SETUP.md) ? cách l?y token, test Graph Explorer và curl; không commit token.
+Xem `.env.example`. Quan tr?ng: `DATABASE_URL`, `REDIS_URL`. S4: `CONTENT_CACHE_TTL_SECONDS`, `DEEPSEEK_API_KEY` (t?y ch?n). **Meta/Facebook** (PAGE_ID, PAGE_ACCESS_TOKEN, webhook): xem [docs/META_SETUP.md](docs/META_SETUP.md) ? cï¿½ch l?y token, test Graph Explorer vï¿½ curl; khï¿½ng commit token.
 
 ## Prompt Playbook v1
 
