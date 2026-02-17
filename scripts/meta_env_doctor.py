@@ -1,6 +1,7 @@
 """
 Meta/Facebook ENV doctor: check Meta env vars and print where to get each key.
-Never logs full tokens (mask 6 chars + ... + 6 chars). Run: python scripts/meta_env_doctor.py
+Never logs full tokens. mask_secret: 6+...+6 or if len<13 then 2+...+2.
+FORMAT_MODE=COMPACT (default): no newline between blocks. FORMAT_MODE=PRETTY: newlines.
 """
 from pathlib import Path
 import os
@@ -12,6 +13,9 @@ try:
     load_dotenv(REPO_ROOT / ".env")
 except ImportError:
     pass
+
+FORMAT_MODE = os.environ.get("FORMAT_MODE", "COMPACT").strip().upper()
+SEP = "" if FORMAT_MODE == "COMPACT" else "\n"
 
 REQUIRED_KEYS = (
     "META_APP_ID",
@@ -38,14 +42,16 @@ GUIDANCE = {
 }
 
 
-def mask_secret(value: str, visible: int = 6) -> str:
-    """Mask secret/token: 6 chars + ... + 6 chars. Never print full value."""
+def mask_secret(value: str) -> str:
+    """6 chars + ... + 6 chars; if len < 13 then 2 + ... + 2. Never print full value."""
     if not value or not value.strip():
         return "(empty)"
     s = value.strip()
-    if len(s) <= visible * 2:
+    if len(s) < 4:
         return "***"
-    return f"{s[:visible]}...{s[-visible:]}"
+    if len(s) < 13:
+        return s[0:2] + "..." + s[-2:]
+    return s[:6] + "..." + s[-6:]
 
 
 def main() -> int:
@@ -73,26 +79,32 @@ def main() -> int:
             else:
                 rows.append((key, val.strip(), "OK"))
 
-    print("=" * 60)
-    print("Meta/Facebook ENV Doctor")
-    print("=" * 60)
-    print(f"Reading .env from: {REPO_ROOT / '.env'}")
-    print("Env status:")
-    print("-" * 60)
+    parts = [
+        "=" * 60,
+        "Meta/Facebook ENV Doctor",
+        "=" * 60,
+        f"Reading .env from: {REPO_ROOT / '.env'}",
+        "Env status:",
+        "-" * 60,
+    ]
     for key, display, tag in rows:
-        print(f"  {key}: {display}  [{tag}]")
-    print("-" * 60)
+        parts.append(f"  {key}: {display}  [{tag}]")
+    parts.append("-" * 60)
 
     if missing:
-        print("\nRequired keys missing:", ", ".join(missing))
-        print("\nWhere to get each key:")
+        parts.append("")
+        parts.append("Required keys missing: " + ", ".join(missing))
+        parts.append("Where to get each key:")
         for key in missing:
-            print(f"  * {key}")
-            print(f"    -> {GUIDANCE.get(key, 'See docs/META_SETUP.md')}")
-        print("\nAfter filling .env run: python scripts/meta_verify.py")
+            parts.append(f"  * {key}")
+            parts.append(f"    -> {GUIDANCE.get(key, 'See docs/META_SETUP.md')}")
+        parts.append("")
+        parts.append("After filling .env run: python scripts/meta_verify.py")
+        print(SEP.join(parts))
         return 1
 
-    print("\nNext: python scripts/meta_verify.py")
+    parts.append("Next: python scripts/meta_verify.py")
+    print(SEP.join(parts))
     return 0
 
 

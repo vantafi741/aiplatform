@@ -1,8 +1,7 @@
 """
 Meta/Facebook token verification: kiem tra token hop le, lay Page info, debug token.
-Doc ENV: META_APP_ID, META_APP_SECRET, FACEBOOK_PAGE_ID, FACEBOOK_PAGE_ACCESS_TOKEN.
-Goi Graph API: /me, /{PAGE_ID}, /debug_token. In bang token_valid, app_id, expires_at, scopes.
-Khong in full token. Chay: python scripts/meta_verify.py
+FORMAT_MODE=COMPACT (default): no newline between blocks. FORMAT_MODE=PRETTY: newlines.
+Timeout 20s. Never print full token. Chay: python scripts/meta_verify.py
 """
 from pathlib import Path
 import os
@@ -17,7 +16,10 @@ except ImportError:
 
 import requests
 
+FORMAT_MODE = os.environ.get("FORMAT_MODE", "COMPACT").strip().upper()
+SEP = "" if FORMAT_MODE == "COMPACT" else "\n"
 GRAPH_BASE = "https://graph.facebook.com/v24.0"
+TIMEOUT = 20
 
 REQUIRED_KEYS = (
     "META_APP_ID",
@@ -27,14 +29,16 @@ REQUIRED_KEYS = (
 )
 
 
-def mask_secret(value: str, visible: int = 6) -> str:
-    """Mask token/secret: 6 chars + ... + 6 chars."""
+def mask_secret(value: str) -> str:
+    """6 chars + ... + 6 chars; if len < 13 then 2 + ... + 2."""
     if not value or not value.strip():
         return "(empty)"
     s = value.strip()
-    if len(s) <= visible * 2:
+    if len(s) < 4:
         return "***"
-    return f"{s[:visible]}...{s[-visible:]}"
+    if len(s) < 13:
+        return s[0:2] + "..." + s[-2:]
+    return s[:6] + "..." + s[-6:]
 
 
 def get_env() -> dict:
@@ -47,8 +51,10 @@ def get_env() -> dict:
         else:
             env[key] = val.strip()
     if missing:
-        print(f"[ERROR] Thieu bien moi truong: {', '.join(missing)}")
-        print("Chay: python scripts/meta_env_doctor.py de xem huong dan.")
+        msg = f"[ERROR] Thieu bien moi truong: {', '.join(missing)}" + "Chay: python scripts/meta_env_doctor.py de xem huong dan."
+        if FORMAT_MODE == "PRETTY":
+            msg = f"[ERROR] Thieu bien moi truong: {', '.join(missing)}\nChay: python scripts/meta_env_doctor.py de xem huong dan."
+        print(msg)
         sys.exit(1)
     return env
 
@@ -60,7 +66,7 @@ def debug_token(app_id: str, app_secret: str, page_token: str) -> dict:
         "access_token": f"{app_id}|{app_secret}",
     }
     try:
-        r = requests.get(url, params=params, timeout=15)
+        r = requests.get(url, params=params, timeout=TIMEOUT)
         r.raise_for_status()
         data = r.json()
         return data.get("data", {})
@@ -75,37 +81,34 @@ def main() -> int:
     page_id = env["FACEBOOK_PAGE_ID"]
     page_token = env["FACEBOOK_PAGE_ACCESS_TOKEN"]
 
+    parts = []
+
     me_url = f"{GRAPH_BASE}/me"
     me_params = {"fields": "id,name", "access_token": page_token}
     try:
-        me_resp = requests.get(me_url, params=me_params, timeout=15)
+        me_resp = requests.get(me_url, params=me_params, timeout=TIMEOUT)
         me_data = me_resp.json() if me_resp.ok else {}
         if "error" in me_data:
-            print("[FAIL] /me:", me_data["error"].get("message", me_data["error"]))
-            me_id = me_name = None
+            parts.append("[FAIL] /me: " + str(me_data["error"].get("message", me_data["error"])))
         else:
             me_id = me_data.get("id")
             me_name = me_data.get("name", "")
-            print(f"[OK] /me: id={me_id}, name={me_name}")
+            parts.append(f"[OK] /me: id={me_id}, name={me_name}")
     except requests.RequestException as e:
-        print(f"[FAIL] /me: {e}")
-        me_id = me_name = None
+        parts.append(f"[FAIL] /me: {e}")
 
     page_url = f"{GRAPH_BASE}/{page_id}"
     page_params = {"fields": "id,name,link,fan_count", "access_token": page_token}
     try:
-        page_resp = requests.get(page_url, params=page_params, timeout=15)
+        page_resp = requests.get(page_url, params=page_params, timeout=TIMEOUT)
         page_data = page_resp.json() if page_resp.ok else {}
         if "error" in page_data:
-            print(f"[FAIL] /{page_id}:", page_data["error"].get("message", page_data["error"]))
-            page_info = None
+            parts.append(f"[FAIL] /{page_id}: " + str(page_data["error"].get("message", page_data["error"])))
         else:
-            page_info = page_data
-            print(f"[OK] Page: id={page_info.get('id')}, name={page_info.get('name')}, "
-                  f"link={page_info.get('link')}, fan_count={page_info.get('fan_count')}")
+            pi = page_data
+            parts.append(f"[OK] Page: id={pi.get('id')}, name={pi.get('name')}, link={pi.get('link')}, fan_count={pi.get('fan_count')}")
     except requests.RequestException as e:
-        print(f"[FAIL] Page request: {e}")
-        page_info = None
+        parts.append(f"[FAIL] Page request: {e}")
 
     debug = debug_token(app_id, app_secret, page_token)
     valid = debug.get("is_valid", False)
@@ -120,28 +123,27 @@ def main() -> int:
         from datetime import datetime
         exp_str = datetime.utcfromtimestamp(expires_at).isoformat() + "Z"
     else:
-        exp_str = "never" if expires_at == 0 else str(expires_at)
+        exp_str = "never"
 
-    print("Ket qua debug_token:")
-    print("-" * 60)
-    print(f"  token_valid:  {valid}")
-    print(f"  app_id:       {app_id_debug}")
-    print(f"  expires_at:   {exp_str}")
-    print(f"  scopes:       {', '.join(scopes) if scopes else '(empty)'}")
-    print("-" * 60)
+    parts.append("Ket qua debug_token:")
+    parts.append("-" * 60)
+    parts.append(f"  token_valid:  {valid}")
+    parts.append(f"  app_id:       {app_id_debug}")
+    parts.append(f"  expires_at:   {exp_str}")
+    parts.append(f"  scopes:       {', '.join(scopes) if scopes else '(empty)'}")
+    parts.append("-" * 60)
 
     if not valid:
         err = debug.get("error") or debug.get("message")
-        print("\n[Token khong hop le]")
+        parts.append("[Token khong hop le]")
         if err:
-            print(f"  Chi tiet: {err}")
-        print("  Huong dan:")
-        print("  - Tao lai Page Access Token: Graph Explorer -> Get Token -> Get Page Access Token")
-        print("  - Hoac dung System User token (Business Settings -> System Users -> Generate Token)")
-        print("  - Can quyen: pages_manage_posts, pages_read_engagement")
+            parts.append(f"  Chi tiet: {err}")
+        parts.append("  Huong dan: Tao lai Page Access Token hoac System User token; quyen pages_manage_posts, pages_read_engagement")
+        print(SEP.join(parts))
         return 1
 
-    print("[OK] Token hop le. Co the chay: python scripts/meta_post_test.py --message \"Test\"")
+    parts.append("[OK] Token hop le. Co the chay: python scripts/meta_post_test.py --message \"Test\"")
+    print(SEP.join(parts))
     return 0
 
 

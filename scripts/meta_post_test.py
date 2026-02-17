@@ -1,9 +1,7 @@
 """
-Meta/Facebook post test: đăng một bài test lên Page qua Graph API.
-
-POST /{FACEBOOK_PAGE_ID}/feed với message (mặc định hoặc --message).
-In post_id nếu thành công; nếu lỗi in error code + message (200/190/10).
-Chạy: python scripts/meta_post_test.py [--message "Nội dung"]
+Meta/Facebook post test: dang bai test len Page qua Graph API.
+FORMAT_MODE=COMPACT (default): no newline between blocks. FORMAT_MODE=PRETTY: newlines.
+Timeout 20s. Never print full token. Chay: python scripts/meta_post_test.py [--message "text"]
 """
 import argparse
 from pathlib import Path
@@ -19,23 +17,27 @@ except ImportError:
 
 import requests
 
+FORMAT_MODE = os.environ.get("FORMAT_MODE", "COMPACT").strip().upper()
+SEP = "" if FORMAT_MODE == "COMPACT" else "\n"
 GRAPH_BASE = "https://graph.facebook.com/v24.0"
+TIMEOUT = 20
 
 REQUIRED_KEYS = ("FACEBOOK_PAGE_ID", "FACEBOOK_PAGE_ACCESS_TOKEN")
 
 
-def mask_secret(value: str, visible: int = 6) -> str:
-    """Mask token: 6 chars + ... + 6 chars. Never print full value."""
+def mask_secret(value: str) -> str:
+    """6 chars + ... + 6 chars; if len < 13 then 2 + ... + 2."""
     if not value or not value.strip():
         return "(empty)"
     s = value.strip()
-    if len(s) <= visible * 2:
+    if len(s) < 4:
         return "***"
-    return f"{s[:visible]}...{s[-visible:]}"
+    if len(s) < 13:
+        return s[0:2] + "..." + s[-2:]
+    return s[:6] + "..." + s[-6:]
 
 
 def get_env() -> dict:
-    """Lấy ENV; thiếu thì báo lỗi."""
     env = {}
     missing = []
     for key in REQUIRED_KEYS:
@@ -45,20 +47,21 @@ def get_env() -> dict:
         else:
             env[key] = val.strip()
     if missing:
-        print(f"[ERROR] Thieu bien moi truong: {', '.join(missing)}")
-        print("Chay: python scripts/meta_env_doctor.py de xem huong dan.")
+        msg = f"[ERROR] Thieu bien moi truong: {', '.join(missing)}" + "Chay: python scripts/meta_env_doctor.py de xem huong dan."
+        if FORMAT_MODE == "PRETTY":
+            msg = f"[ERROR] Thieu bien moi truong: {', '.join(missing)}\nChay: python scripts/meta_env_doctor.py de xem huong dan."
+        print(msg)
         sys.exit(1)
     return env
 
 
 def main() -> int:
-    """Đăng bài test lên Page."""
-    parser = argparse.ArgumentParser(description="Test đăng bài lên Facebook Page")
+    parser = argparse.ArgumentParser(description="Test dang bai len Facebook Page")
     parser.add_argument(
         "--message",
         type=str,
-        default="Test đăng bài từ server (meta_post_test.py)",
-        help="Nội dung bài đăng",
+        default="Test post from API",
+        help="Noi dung bai dang",
     )
     args = parser.parse_args()
 
@@ -69,17 +72,20 @@ def main() -> int:
     url = f"{GRAPH_BASE}/{page_id}/feed"
     payload = {"message": args.message, "access_token": page_token}
 
-    print("Sending POST to Page feed...")
-    print(f"  Page ID: {page_id}")
-    print(f"  Message: {args.message}")
+    parts = [
+        "Sending POST to Page feed...",
+        f"  Page ID: {page_id}",
+        f"  Message: {args.message}",
+    ]
 
     try:
-        r = requests.post(url, data=payload, timeout=15)
+        r = requests.post(url, data=payload, timeout=TIMEOUT)
         data = r.json() if r.text else {}
 
         if r.status_code == 200 and "id" in data:
             post_id = data["id"]
-            print(f"[OK] Post created. post_id: {post_id}")
+            parts.append(f"[OK] Post created. post_id: {post_id}")
+            print(SEP.join(parts))
             return 0
 
         err = data.get("error", {})
@@ -87,23 +93,28 @@ def main() -> int:
         msg = err.get("message", str(data))
         subcode = err.get("error_subcode")
 
-        print(f"[FAIL] HTTP {r.status_code}")
-        print(f"  error code:    {code}")
-        print(f"  error message: {msg}")
+        parts = [
+            f"[FAIL] HTTP {r.status_code}",
+            f"  error code:    {code}",
+            f"  error message: {msg}",
+        ]
         if subcode is not None:
-            print(f"  error_subcode: {subcode}")
+            parts.append(f"  error_subcode: {subcode}")
 
         if code == 190:
-            print("  -> Token expired or invalid. Regenerate Page Access Token.")
+            parts.append("  -> Token expired or invalid. Regenerate Page Access Token.")
         elif code == 10:
-            print("  -> Permission denied. Ensure App has pages_manage_posts.")
+            parts.append("  -> Permission denied. Ensure App has pages_manage_posts.")
         elif code == 200:
-            print("  -> Missing permission (pages_manage_posts) or Page not linked to App.")
+            parts.append("  -> Missing permission (pages_manage_posts) or Page not linked to App.")
+        else:
+            parts.append("  -> Missing permission (pages_manage_posts) or Page not linked to App.")
 
+        print(SEP.join(parts))
         return 1
 
     except requests.RequestException as e:
-        print(f"\n[FAIL] Request error: {e}")
+        print(SEP.join(parts) + SEP + f"[FAIL] Request error: {e}")
         return 1
 
 

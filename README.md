@@ -143,7 +143,7 @@ Sau khi dien `.env` (Meta keys), chay tu repo root:
 ```bash
 python scripts/meta_env_doctor.py
 python scripts/meta_verify.py
-python scripts/meta_post_test.py --message "Hello"
+python scripts/meta_post_test.py --message "Test"
 ```
 
 - **meta_env_doctor.py**: kiem tra bien META_*, FACEBOOK_*, in huong dan lay key (token duoc mask).
