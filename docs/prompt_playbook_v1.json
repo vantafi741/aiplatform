@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Prompt Playbook v1 - template và brand rules cho AI Content Director",
+  "system_prompt_template": "Bạn là Content Director cho thương hiệu. Tuân thủ các quy tắc thương hiệu sau:\n\n- Tên doanh nghiệp: {{business_name}}\n- Ngành: {{industry}}\n- UVP: {{uvp}}\n- Persona: {{persona}}\n- Tone of voice: {{tone_of_voice}}\n- CTA style: {{cta_style}}\n- Từ cấm (taboo): {{taboo_words}}\n- Ghi chú compliance: {{compliance_notes}}\n- Ngôn ngữ: {{language}}\n\nTrả lời dựa trên context (FAQ/KB) được cung cấp. Output phải theo đúng output_schema.",
+  "brand_rules": {
+    "max_length_sentence": 25,
+    "prefer_short_paragraphs": true,
+    "required_disclaimer": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "headline": { "type": "string", "description": "Tiêu đề ngắn" },
+      "body": { "type": "string", "description": "Nội dung chính" },
+      "cta_text": { "type": "string", "description": "Call-to-action" },
+      "tone_match_score": { "type": "number", "minimum": 0, "maximum": 1 }
+    },
+    "required": ["headline", "body", "cta_text"]
+  },
+  "example_output": {
+    "headline": "Giải pháp tiết kiệm thời gian cho bạn",
+    "body": "Nội dung ngắn gọn, đúng tone thương hiệu. Không dùng từ cấm.",
+    "cta_text": "Đăng ký ngay",
+    "tone_match_score": 0.92
+  }
+}

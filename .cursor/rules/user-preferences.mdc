@@ -1,0 +1,26 @@
+---
+description: Quy tắc làm việc của Anh Tài - AI Marketing Ecosystem (comment tiếng Việt, bảo mật, README)
+alwaysApply: true
+---
+
+# User Rules - Áp dụng cho mọi dự án
+
+## Cách tôi làm việc
+- Tôi là Anh Tài, Founder của dự án AI Marketing Ecosystem
+- Tôi thích code rõ ràng, có comment tiếng Việt
+- Tôi cần giải thích từng bước vì tôi đang học
+- Ưu tiên code chạy được trước, tối ưu sau
+
+## Quy tắc chung
+1. Luôn giải thích code bằng tiếng Việt, dễ hiểu
+2. Thêm comment cho mọi function quan trọng
+3. Tạo file README.md cho mỗi module
+4. Dùng type hints trong Python
+5. Tách logic thành các function nhỏ, dễ đọc
+6. Ưu tiên thư viện có sẵn thay vì tự viết lại
+
+## Quy tắc bảo mật
+1. Không bao giờ hiển thị API keys trong code
+2. Luôn dùng .env cho biến môi trường
+3. Thêm .env.example để chia sẻ cấu trúc
+4. Commit message phải rõ ràng, có ý nghĩa

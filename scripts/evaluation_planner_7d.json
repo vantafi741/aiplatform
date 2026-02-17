@@ -1,0 +1,16 @@
+{
+  "tenant_id": null,
+  "created": 7,
+  "items": [
+    { "day_number": 1, "topic": "...", "content_angle": "...", "status": "planned" },
+    { "day_number": 2, "topic": "...", "content_angle": "...", "status": "planned" },
+    { "day_number": 3, "topic": "...", "content_angle": "...", "status": "planned" },
+    { "day_number": 4, "topic": "...", "content_angle": "...", "status": "planned" },
+    { "day_number": 5, "topic": "...", "content_angle": "...", "status": "planned" },
+    { "day_number": 6, "topic": "...", "content_angle": "...", "status": "planned" },
+    { "day_number": 7, "topic": "...", "content_angle": "...", "status": "planned" }
+  ],
+  "used_ai": false,
+  "used_fallback": false,
+  "model": null
+}

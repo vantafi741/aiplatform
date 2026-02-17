@@ -1,0 +1,44 @@
+# Production overrides – Foundation Stack
+# Chạy: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Không mở port host cho Postgres/Redis ra ngoài (chỉ dùng nội bộ). API và n8n expose.
+
+services:
+  api:
+    restart: unless-stopped
+    env_file:
+      - ./ai_content_director/.env
+    environment:
+      - APP_ENV=production
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    restart: unless-stopped
+    ports: []   # không expose 5432 ra host trong prod (chỉ container)
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    restart: unless-stopped
+    ports: []   # không expose 6379 ra host trong prod
+    healthcheck:
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  n8n:
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+    healthcheck:
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s

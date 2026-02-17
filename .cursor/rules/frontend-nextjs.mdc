@@ -1,0 +1,39 @@
+---
+description: Next.js/React frontend - App Router, Tailwind, naming, API (AI Ecosystem)
+globs: frontend/**/*
+alwaysApply: false
+---
+
+# Frontend Development Rules - AI Ecosystem
+
+## Cấu trúc Next.js
+- Dùng App Router (thư mục `app/`)
+- Components trong `components/`
+- Styles trong `styles/`
+- Public assets trong `public/`
+
+## Quy tắc đặt tên
+- Component: PascalCase (vd: `UserProfile.tsx`)
+- Page file: `page.tsx`
+- Layout file: `layout.tsx`
+- Hook: `useSomething.ts`
+- Utility: camelCase.ts
+
+## React/Next.js
+- Functional components với hooks
+- Không dùng class components
+- Khai báo type cho mọi props
+- Dùng `'use client'` cho interactive components
+- Tối ưu ảnh với `next/image`
+
+## Styling
+- Tailwind CSS
+- className có ý nghĩa
+- Tránh inline styles
+- CSS modules nếu style phức tạp
+
+## API calls
+- Gọi API qua fetch hoặc axios
+- Xử lý loading và error states
+- Cache responses khi có thể
+- Dùng environment variables cho API URLs

@@ -1,5 +1,7 @@
 # ENV Keys Report – AI Content Director / AI Marketing Platform
 
+**Lưu ý:** Báo cáo này tham chiếu api/, shared/, workers/ đã xóa. Chuẩn env hiện tại: `ai_content_director/.env.example`.
+
 **Ngày tạo:** 2025-02-16  
 **Nguồn scan:** Python (pydantic_settings BaseSettings), docs, docker-compose, alembic.
 

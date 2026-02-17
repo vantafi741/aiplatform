@@ -1,0 +1,38 @@
+---
+description: Python/FastAPI backend - cấu trúc, naming, code style, DB (AI Ecosystem)
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Python Development Rules - AI Ecosystem
+
+## Cấu trúc backend
+- Backend dùng FastAPI, đặt trong `backend/app/`
+- Mỗi module API là một file riêng trong `app/api/`
+- Database models trong `app/models/`
+- Core logic trong `app/core/`
+
+## Quy tắc đặt tên
+- File: snake_case (vd: `user_service.py`)
+- Class: PascalCase (vd: `UserService`)
+- Function: snake_case (vd: `get_user_by_id`)
+- Biến: snake_case (vd: `user_name`)
+- Hằng số: UPPER_CASE (vd: `MAX_RETRY_COUNT`)
+
+## Code style
+- Type hints cho mọi function
+- Docstring cho mọi public function
+- Max line length: 88 ký tự
+- 4 spaces, không dùng tab
+- Thứ tự import: stdlib → third-party → local
+
+## FastAPI
+- Mọi endpoint phải có response model
+- Dùng Pydantic models cho request/response
+- Group endpoints theo router
+- Thêm tags cho Swagger docs
+
+## Database
+- SQLAlchemy 2.0 style
+- Tạo migration cho mọi thay đổi
+- Không dùng raw SQL nếu không cần thiết

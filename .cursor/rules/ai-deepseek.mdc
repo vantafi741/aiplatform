@@ -1,0 +1,34 @@
+---
+description: AI / DeepSeek / RAG / Agents - prompt, API, knowledge base, agent structure (AI Ecosystem)
+globs: agents/**/*
+alwaysApply: false
+---
+
+# AI & DeepSeek Rules - AI Ecosystem
+
+## Prompt engineering
+- Prompt rõ ràng, cụ thể
+- Luôn cung cấp context về ngành nghề
+- Temperature 0.7 cho creative tasks
+- Temperature 0.2 cho factual tasks
+
+## DeepSeek integration
+- API: `https://api.deepseek.com/v1/chat/completions`
+- Model mặc định: `deepseek-chat`
+- Model reasoning: `deepseek-reasoner`
+- Luôn kiểm tra rate limits
+- Cache responses khi có thể
+
+## RAG (Retrieval Augmented Generation)
+- Knowledge base trong `data/kb/`
+- Vector embeddings trong `data/vectors/`
+- Dùng metadata cho mọi document
+- Update vectors khi KB thay đổi
+
+## AI Agents
+- Mỗi agent là một class riêng trong `agents/`
+- Agent bắt buộc có:
+  - `__init__`: khởi tạo
+  - `process()`: xử lý chính
+  - `validate()`: kiểm tra output
+- Log mọi interaction để training sau

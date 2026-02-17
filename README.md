@@ -1,82 +1,44 @@
-# AI Content Director ? MVP
+# AI Marketing – Sales – Content Ecosystem Platform
 
-Backend: FastAPI + RQ workers + Postgres + Redis. Control plane (n8n) g?i webhook; processing qua queue. Sprint 2: onboarding, brand profile, KB FAQ, RAG stub.
+**Platform Core Architecture v1.** Core app duy nhất: **ai_content_director**. Xem chi tiết: [README_ROOT.md](README_ROOT.md) và [ai_content_director/README.md](ai_content_director/README.md).
 
-## Ki?n tr?c
+## Chạy local (thống nhất)
 
-- **Control plane**: n8n (ngo?i repo) ? ch? c?n webhook tr? t?i API.
-- **Processing**: FastAPI (API) + worker RQ (Redis Queue).
-- **Data**: Postgres (Alembic migrations), object storage (MinIO optional sau).
-- **RAG**: VectorStoreAdapter interface + stub retrieval Postgres (ILIKE).
+Từ thư mục gốc repo:
 
-## C?u tr?c th? m?c
+- **Windows:** `.\scripts\run_mvp_local.ps1`
+- **Linux/Mac:** `./scripts/run_mvp_local.sh`
 
-```
-api/           # FastAPI app, routers, schemas
-workers/       # RQ worker, tasks
-shared/        # config, db, models, logging, audit, queue, rag
-migrations/    # Alembic
-scripts/       # ti?n ?ch, smoke test
-docs/          # t?i li?u, prompt_playbook_v1.json
-```
-
-## Y?u c?u
-
-- Python 3.10+
-- Docker + Docker Compose (Postgres + Redis local)
-- (T?y ch?n) .env copy t? .env.example
-
-## Ch?y local
-
-### 1. C?u h?nh
+Hoặc thủ công:
 
 ```bash
+cd ai_content_director
 cp .env.example .env
-# S?a .env n?u c?n (m?c ??nh ?? kh?p docker-compose)
-```
-
-### 2. Kh?i ??ng Postgres + Redis
-
-```bash
-docker compose up -d
-```
-
-??i v?i gi?y cho DB s?n s?ng.
-
-### 3. Virtual env v? dependencies
-
-```bash
-python -m venv venv
-venv\Scripts\activate   # Windows
-# source venv/bin/activate   # Linux/Mac
+# Sửa .env (DATABASE_URL, OPENAI_*, ...)
+python -m venv .venv
+.venv\Scripts\activate   # Windows
 pip install -r requirements.txt
-```
-
-### 4. Migrations
-
-```bash
 alembic upgrade head
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 5. Ch?y API
+API: http://127.0.0.1:8000 | Docs: http://127.0.0.1:8000/docs
 
-```bash
-uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+## Cấu trúc (sau hợp nhất)
+
+```
+ai_content_director/   # Core app (entrypoint duy nhất)
+scripts/               # run_mvp_local.*, run_full_evaluation.ps1, ...
+docs/                  # MVP_E2E_STEPS.md, CONSOLIDATION_*, ...
 ```
 
-API: http://localhost:8000  
-Docs: http://localhost:8000/docs
+## Smoke test / E2E
 
-### 6. Ch?y worker (terminal kh?c, cho jobs)
+- **E2E steps + curl:** [docs/MVP_E2E_STEPS.md](docs/MVP_E2E_STEPS.md)
+- **Chạy full evaluation:** `.\scripts\run_full_evaluation.ps1` (API phải đang chạy tại 127.0.0.1:8000)
+- **Chi tiết API + smoke test KB:** [ai_content_director/README.md](ai_content_director/README.md)
 
-```bash
-venv\Scripts\activate
-python -m workers.worker
-```
-
-## Smoke test
-
-### Sprint 1 (jobs + worker)
+### (Legacy) Sprint 1 (jobs + worker)
 
 Ch?y l?n l??t sau khi API + worker ?ang ch?y.
 
@@ -138,7 +100,7 @@ Flow: onboarding -> kb ingest -> planner/generate -> content/generate -> regener
 
 ## Meta Setup Quickstart
 
-Sau khi dien `.env` (Meta keys), chay tu repo root:
+Sau khi điền `.env` (Meta keys) trong `ai_content_director/.env` hoặc env, chạy từ repo root:
 
 ```bash
 python scripts/meta_env_doctor.py
@@ -154,13 +116,14 @@ python scripts/meta_post_test.py --message "Test"
 
 ## Bi?n m?i tr??ng (.env)
 
-Xem `.env.example`. Quan tr?ng: `DATABASE_URL`, `REDIS_URL`. S4: `CONTENT_CACHE_TTL_SECONDS`, `DEEPSEEK_API_KEY` (t?y ch?n). **Meta/Facebook** (PAGE_ID, PAGE_ACCESS_TOKEN, webhook): xem [docs/META_SETUP.md](docs/META_SETUP.md) ? c�ch l?y token, test Graph Explorer v� curl; kh�ng commit token.
+Chuẩn: Xem `ai_content_director/.env.example`. Quan trọng: `DATABASE_URL`, `OPENAI_API_KEY`, `REDIS_URL`. S4: `CONTENT_CACHE_TTL_SECONDS`, `DEEPSEEK_API_KEY` (t?y ch?n). **Meta/Facebook:** [docs/META_SETUP.md](docs/META_SETUP.md) ? c�ch l?y token, test Graph Explorer v� curl; kh�ng commit token.
 
 ## Prompt Playbook v1
 
 Template prompt v? brand rules + output_schema m?u: `docs/prompt_playbook_v1.json`. C? v? d? `example_output` JSON cho content (headline, body, cta_text, tone_match_score).
 
-## T?i li?u th?m
+## Tài liệu thêm
 
-- `docs/` ? prompt playbook, verification.
-- `migrations/README.md` ? c?ch d?ng Alembic.
+- [README_ROOT.md](README_ROOT.md) – Platform Core Architecture v1
+- [docs/MVP_E2E_STEPS.md](docs/MVP_E2E_STEPS.md) – E2E + curl
+- [docs/CONSOLIDATION_CORE_ARCH_V1.md](docs/CONSOLIDATION_CORE_ARCH_V1.md) – Danh sách file xóa/sửa khi hợp nhất

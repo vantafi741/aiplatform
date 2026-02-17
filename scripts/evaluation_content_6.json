@@ -1,0 +1,17 @@
+{
+  "tenant_id": null,
+  "created": 6,
+  "items": [
+    {
+      "id": null,
+      "title": "...",
+      "caption": "...",
+      "hashtags": "#tag1 #tag2 #tag3 #tag4 #tag5 #tag6",
+      "status": "draft",
+      "confidence_score": 0.75
+    }
+  ],
+  "used_ai": false,
+  "used_fallback": false,
+  "model": null
+}
