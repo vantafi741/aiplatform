@@ -11,6 +11,10 @@ class PublishFacebookRequest(BaseModel):
 
     tenant_id: UUID = Field(..., description="Tenant UUID")
     content_id: UUID = Field(..., description="Content item UUID (phải đã approved)")
+    use_latest_asset: bool = Field(
+        False,
+        description="Lấy asset READY mới nhất chưa gắn content khi require_media và chưa có asset gắn.",
+    )
 
 
 class PublishFacebookResponse(BaseModel):

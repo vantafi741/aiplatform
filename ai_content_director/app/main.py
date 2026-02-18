@@ -20,6 +20,7 @@ from app.routers import (
     kb_router,
     revenue_mv1_router,
     revenue_mv2_router,
+    gdrive_assets_router,
 )
 
 logger = get_logger(__name__)
@@ -57,6 +58,7 @@ app.include_router(audit_router)
 app.include_router(scheduler_router)
 app.include_router(kpi_router)
 app.include_router(kb_router)
+app.include_router(gdrive_assets_router)
 
 
 @app.get("/")

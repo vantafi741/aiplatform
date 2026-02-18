@@ -123,8 +123,11 @@
 - `POST /content/{content_id}/approve` – duyệt nội dung (HITL). Body: `{"tenant_id": "...", "actor": "HUMAN"}`.
 - `POST /content/{content_id}/reject` – từ chối nội dung. Body: `{"tenant_id": "...", "actor": "HUMAN", "reason": "..."}`.
 - `GET /audit/events?tenant_id=...&limit=50` – audit log (GENERATE_PLAN, GENERATE_CONTENT, AUTO_APPROVED, NEEDS_REVIEW, ESCALATED, APPROVED, REJECTED, PUBLISH_*).
-- `POST /publish/facebook` – đăng một content đã **approved** lên Facebook Page (Graph API). Body: `{"tenant_id": "...", "content_id": "..."}`.
+- `POST /publish/facebook` – đăng một content đã **approved** lên Facebook Page (Graph API). Body: `{"tenant_id": "...", "content_id": "...", "use_latest_asset": false}`. Nếu `require_media=true` và không có asset → 400 `media_required`.
 - `GET /publish/logs?tenant_id=...&limit=50` – danh sách publish logs (queued / success / fail).
+- **Google Drive Dropzone + content assets:**
+  - `POST /api/gdrive/ingest` – quét folder READY, validate mime/size, tải về LOCAL_MEDIA_DIR, tạo content_assets. Body: `{"tenant_id": "..."}`.
+  - `GET /api/assets?tenant_id=...&status=...&content_id=...` – liệt kê assets (filters: status READY/PROCESSED/REJECTED, content_id).
 - `POST /content/{content_id}/schedule` – đặt lịch đăng (chỉ content approved). Body: `{"tenant_id": "...", "scheduled_at": "2026-02-18T09:00:00"}` (ISO).
 - `POST /content/{content_id}/unschedule` – xóa lịch. Body: `{"tenant_id": "..."}`.
 - `GET /scheduler/status` – trạng thái worker: enabled, interval_seconds, last_tick_at, pending_count.
@@ -153,6 +156,22 @@
 **Daily budget (USD/tenant):** Mỗi lần gọi OpenAI được ghi vào `ai_usage_logs` (tokens + cost_usd). Nếu tổng cost trong ngày (UTC) của tenant ≥ `DAILY_BUDGET_USD` thì không gọi OpenAI, tự fallback template. Cấu hình: `DAILY_BUDGET_USD`, tùy chọn `OPENAI_INPUT_PRICE_PER_1M`, `OPENAI_OUTPUT_PRICE_PER_1M`.
 
 **Rate limit:** Redis sliding window, mặc định 60 req/phút theo `X-Tenant-ID` hoặc `X-API-Key` header. Cần `REDIS_URL`; không set thì không áp dụng limit. Cấu hình: `RATE_LIMIT_PER_MIN`, `REDIS_URL`.
+
+**Google Drive Dropzone (content_assets + media-required publish):**
+
+| Biến | Mặc định | Mô tả |
+|------|----------|--------|
+| `GDRIVE_SA_KEY_PATH` | (bắt buộc) | Đường dẫn file JSON Service Account. |
+| `GDRIVE_READY_FOLDER_ID` | (bắt buộc) | Folder ID chứa file ảnh/video chờ ingest. |
+| `GDRIVE_PROCESSED_FOLDER_ID` | (bắt buộc) | Folder chứa file đã publish thành công. |
+| `GDRIVE_REJECTED_FOLDER_ID` | (bắt buộc) | Folder chứa file invalid/lỗi. |
+| `LOCAL_MEDIA_DIR` | `/opt/aiplatform/media_cache` | Thư mục local lưu file tải từ Drive. |
+| `ASSET_MAX_SIZE_MB` | `50` | Giới hạn size file (MB). |
+| `ASSET_ALLOWED_MIME_IMAGE` | `image/jpeg,image/png,image/webp` | Mime image cho phép (comma-separated). |
+| `ASSET_ALLOWED_MIME_VIDEO` | `video/mp4,video/quicktime` | Mime video cho phép (comma-separated). |
+
+- **content_items:** `require_media` (bool, default false), `primary_asset_type` (image/video, nullable).
+- **content_assets:** status READY → sau publish success → PROCESSED (và move file Drive sang PROCESSED); fail → REJECTED + move REJECTED + error_reason.
 
 ---
 
@@ -355,6 +374,42 @@ Invoke-RestMethod -Uri "$base/content/$contentId/reject" -Method Post -ContentTy
 ```
 
 Script đầy đủ (từ thư mục gốc repo): `scripts/smoke_test_hitl.ps1`.
+
+---
+
+## Smoke test Google Drive Dropzone + Assets + Publish
+
+**1) Verify routes**
+
+```bash
+curl -s http://localhost:8000/health
+curl -s http://localhost:8000/
+curl -s "http://localhost:8000/api/assets?tenant_id=6d8c9081-6500-46e8-b60c-5e0f7fd8b002"
+```
+
+Kỳ vọng: `/health` → `{"status":"ok"}`, `/` → app name + version, `/api/assets` → `{"tenant_id":"...", "assets":[]}` (hoặc 422 nếu thiếu query).
+
+**2) Ingest (cần GDRIVE_SA_KEY_PATH + folder IDs đã cấu hình)**
+
+```bash
+curl -s -X POST http://localhost:8000/api/gdrive/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"6d8c9081-6500-46e8-b60c-5e0f7fd8b002"}'
+```
+
+Kỳ vọng: `{"tenant_id":"6d8c9081-6500-46e8-b60c-5e0f7fd8b002","count_ingested":N,"count_invalid":M}`. Nếu cấu hình thiếu → 503.
+
+**3) List assets**
+
+```bash
+curl -s "http://localhost:8000/api/assets?tenant_id=6d8c9081-6500-46e8-b60c-5e0f7fd8b002&status=READY"
+```
+
+**4) Publish test flow**
+
+- Có content **approved** và (tùy chọn) asset READY. Nếu content `require_media=true` và chưa có asset gắn: gửi `use_latest_asset: true` để dùng asset READY mới nhất chưa gắn content.
+- `POST /publish/facebook` với body `{"tenant_id":"6d8c9081-6500-46e8-b60c-5e0f7fd8b002","content_id":"<content_uuid>","use_latest_asset":true}`.
+- Kiểm tra: publish success → asset chuyển PROCESSED, file Drive move sang PROCESSED; fail → asset REJECTED, file move REJECTED, `GET /api/assets?status=PROCESSED` hoặc `status=REJECTED`.
 
 ---
 

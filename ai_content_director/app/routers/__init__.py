@@ -11,6 +11,7 @@ from app.routers.kpi_router import router as kpi_router
 from app.routers.kb_router import router as kb_router
 from app.routers.revenue_mv1_router import router as revenue_mv1_router
 from app.routers.revenue_mv2_router import router as revenue_mv2_router
+from app.routers.gdrive_assets_router import router as gdrive_assets_router
 
 __all__ = [
     "api_health_router",
@@ -25,4 +26,5 @@ __all__ = [
     "kb_router",
     "revenue_mv1_router",
     "revenue_mv2_router",
+    "gdrive_assets_router",
 ]

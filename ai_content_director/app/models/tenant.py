@@ -39,3 +39,4 @@ class Tenant(Base):
     ai_usage_logs = relationship("AiUsageLog", back_populates="tenant")
     approval_events = relationship("ApprovalEvent", back_populates="tenant")
     post_metrics = relationship("PostMetrics", back_populates="tenant")
+    content_assets = relationship("ContentAsset", back_populates="tenant")

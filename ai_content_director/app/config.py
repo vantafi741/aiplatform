@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     facebook_api_version: str = Field(default="v20.0", alias="FACEBOOK_API_VERSION")
     redis_url: Optional[str] = Field(default=None, alias="REDIS_URL")
 
+    # Google Drive dropzone (Service Account + folder IDs)
+    gdrive_sa_key_path: Optional[str] = Field(default=None, alias="GDRIVE_SA_KEY_PATH")
+    gdrive_ready_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_READY_FOLDER_ID")
+    gdrive_processed_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_PROCESSED_FOLDER_ID")
+    gdrive_rejected_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_REJECTED_FOLDER_ID")
+    local_media_dir: str = Field(default="/opt/aiplatform/media_cache", alias="LOCAL_MEDIA_DIR")
+    asset_max_size_mb: int = Field(default=50, alias="ASSET_MAX_SIZE_MB")
+    asset_allowed_mime_image: str = Field(
+        default="image/jpeg,image/png,image/webp",
+        alias="ASSET_ALLOWED_MIME_IMAGE",
+    )
+    asset_allowed_mime_video: str = Field(
+        default="video/mp4,video/quicktime",
+        alias="ASSET_ALLOWED_MIME_VIDEO",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

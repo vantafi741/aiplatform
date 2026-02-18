@@ -107,6 +107,7 @@ async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
                     tenant_id=tenant_id,
                     content_id=content_id,
                     actor="SYSTEM",
+                    use_latest_asset=True,
                 )
             except ValueError as e:
                 error_message = str(e)
