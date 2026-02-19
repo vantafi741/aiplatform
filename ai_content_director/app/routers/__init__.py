@@ -3,7 +3,9 @@ from app.routers.api_health_router import router as api_health_router
 from app.routers.health_router import router as health_router
 from app.routers.onboarding_router import router as onboarding_router
 from app.routers.planner_router import router as planner_router
+from app.routers.plans_router import router as plans_router
 from app.routers.content_router import router as content_router
+from app.routers.content_items_router import router as content_items_router
 from app.routers.publish_router import router as publish_router
 from app.routers.audit_router import router as audit_router
 from app.routers.scheduler_router import router as scheduler_router
@@ -18,7 +20,9 @@ __all__ = [
     "health_router",
     "onboarding_router",
     "planner_router",
+    "plans_router",
     "content_router",
+    "content_items_router",
     "publish_router",
     "audit_router",
     "scheduler_router",

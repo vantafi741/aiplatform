@@ -12,7 +12,9 @@ from app.routers import (
     health_router,
     onboarding_router,
     planner_router,
+    plans_router,
     content_router,
+    content_items_router,
     publish_router,
     audit_router,
     scheduler_router,
@@ -52,7 +54,9 @@ app.include_router(revenue_mv2_router)
 app.include_router(health_router)
 app.include_router(onboarding_router)
 app.include_router(planner_router)
+app.include_router(plans_router)
 app.include_router(content_router)
+app.include_router(content_items_router)
 app.include_router(publish_router)
 app.include_router(audit_router)
 app.include_router(scheduler_router)

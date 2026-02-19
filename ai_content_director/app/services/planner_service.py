@@ -1,6 +1,6 @@
-"""30-day content planner service (OpenAI + deterministic fallback)."""
+"""30-day content planner service (OpenAI + deterministic fallback). Tạo 1 plan row với plan_json (30 entries)."""
 import json
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
@@ -15,6 +15,8 @@ from app.services.approval_service import log_audit_event
 from app.services.llm_service import LLMService
 
 logger = get_logger(__name__)
+
+PLAN_DAYS_DEFAULT = 30
 
 
 def _build_plan_topics(
@@ -82,31 +84,55 @@ async def get_tenant_with_profile(
     return (tenant, profile)
 
 
+def _normalize_to_30_entries(
+    topics: List[Tuple[int, str, str]],
+) -> List[Dict[str, Any]]:
+    """Chuẩn hóa thành đúng 30 entries cho plan_json. Pad hoặc cắt nếu cần."""
+    result: List[Dict[str, Any]] = []
+    for day in range(1, PLAN_DAYS_DEFAULT + 1):
+        if day <= len(topics):
+            day_num, topic, content_angle = topics[day - 1]
+            result.append({
+                "day_number": day_num,
+                "topic": topic,
+                "content_angle": content_angle,
+                "caption": "",
+            })
+        else:
+            result.append({
+                "day_number": day,
+                "topic": f"Chủ đề ngày {day}",
+                "content_angle": "",
+                "caption": "",
+            })
+    return result[:PLAN_DAYS_DEFAULT]
+
+
 async def generate_30_day_plan(
     db: AsyncSession,
     request: PlannerGenerateRequest,
     force: bool = False,
     use_ai: bool = True,
-) -> Tuple[int, List[PlanItemOut], bool, bool, Optional[str]]:
+) -> Tuple[int, List[PlanItemOut], bool, bool, Optional[str], Optional[UUID]]:
     """
-    Create request.days content_plans for tenant.
-    If use_ai and OpenAI configured and succeeds: use LLM output; else fallback to deterministic template.
-    Returns (created_count, items, used_ai, used_fallback, model).
-    Raises ValueError("tenant_not_found") or ValueError("plan_exists") as before.
+    Tạo 1 content_plan với plan_json (30 entries). Chuẩn hóa output đủ 30 ngày.
+    Returns (created_count=30, items, used_ai, used_fallback, model, plan_id).
+    Raises ValueError("tenant_not_found") hoặc ValueError("plan_exists").
     """
     tenant_id = request.tenant_id
-    days = request.days
+    days = min(request.days, PLAN_DAYS_DEFAULT)
+    if days < 1:
+        days = PLAN_DAYS_DEFAULT
     settings = get_settings()
 
-    # Cost guard: từ chối days > 30
-    if days > 30:
+    if request.days > 30:
         raise ValueError("days_exceeded")
 
     pair = await get_tenant_with_profile(db, tenant_id)
     if not pair:
         raise ValueError("tenant_not_found")
     tenant, profile = pair
-    industry = tenant.industry
+    industry = tenant.industry or ""
     main_services_list = []
     if profile and profile.main_services:
         try:
@@ -115,13 +141,14 @@ async def generate_30_day_plan(
             main_services_list = []
     brand_tone = (profile.brand_tone or "") if profile else ""
 
-    count_q = select(func.count(ContentPlan.id)).where(ContentPlan.tenant_id == tenant_id)
-    r = await db.execute(count_q)
+    # Đã có plan nào cho tenant thì coi là plan_exists (giữ nguyên 1 plan/tenant khi không force)
+    q_exists = select(func.count(ContentPlan.id)).where(ContentPlan.tenant_id == tenant_id)
+    r = await db.execute(q_exists)
     existing = r.scalar() or 0
-    if existing >= days and not force:
+    if existing > 0 and not force:
         raise ValueError("plan_exists")
 
-    if force and existing >= days:
+    if force and existing > 0:
         await db.execute(delete(ContentPlan).where(ContentPlan.tenant_id == tenant_id))
         await db.flush()
 
@@ -137,7 +164,7 @@ async def generate_30_day_plan(
             llm = LLMService(settings)
             brand_context = _brand_context(tenant, profile)
             raw, usage_info = await llm.generate_planner(brand_context, days)
-            if len(raw) == days and len(set(r["day_number"] for r in raw)) == days:
+            if len(raw) >= days and len(set(r["day_number"] for r in raw)) >= days:
                 await log_usage(
                     db,
                     tenant_id=tenant_id,
@@ -147,7 +174,7 @@ async def generate_30_day_plan(
                     completion_tokens=usage_info.get("completion_tokens", 0),
                     total_tokens=usage_info.get("total_tokens", 0),
                 )
-                raw_sorted = sorted(raw, key=lambda x: x["day_number"])
+                raw_sorted = sorted(raw, key=lambda x: x["day_number"])[:PLAN_DAYS_DEFAULT]
                 topics = [(r["day_number"], r["topic"], r.get("content_angle") or "") for r in raw_sorted]
                 used_ai = True
                 model_used = settings.openai_model
@@ -157,53 +184,65 @@ async def generate_30_day_plan(
             if str(e) == "budget_exceeded":
                 logger.info("planner.budget_exceeded", tenant_id=str(tenant_id))
                 used_fallback = True
-                topics = _build_plan_topics(industry, main_services_list, brand_tone, days)
+                topics = _build_plan_topics(industry, main_services_list, brand_tone, PLAN_DAYS_DEFAULT)
             else:
                 raise
         except Exception as e:
             logger.info("planner.llm_fallback", reason=str(e))
             used_fallback = True
-            topics = _build_plan_topics(industry, main_services_list, brand_tone, days)
+            topics = _build_plan_topics(industry, main_services_list, brand_tone, PLAN_DAYS_DEFAULT)
     elif use_ai and not settings.openai_api_key:
         used_fallback = True
-        topics = _build_plan_topics(industry, main_services_list, brand_tone, days)
+        topics = _build_plan_topics(industry, main_services_list, brand_tone, PLAN_DAYS_DEFAULT)
     else:
-        topics = _build_plan_topics(industry, main_services_list, brand_tone, days)
+        topics = _build_plan_topics(industry, main_services_list, brand_tone, PLAN_DAYS_DEFAULT)
 
-    created_items: List[PlanItemOut] = []
-    for day_number, topic, content_angle in topics:
-        plan = ContentPlan(
-            tenant_id=tenant_id,
-            day_number=day_number,
-            topic=topic,
-            content_angle=content_angle,
+    plan_json_entries = _normalize_to_30_entries(topics)
+    first = plan_json_entries[0] if plan_json_entries else {}
+    title = f"Kế hoạch 30 ngày - {industry}" or (first.get("topic") or "30-day plan")
+    objective = (profile.target_customer or "") if profile else ""
+    tone = brand_tone or ""
+
+    plan = ContentPlan(
+        tenant_id=tenant_id,
+        title=title,
+        objective=objective,
+        tone=tone,
+        plan_json=plan_json_entries,
+        day_number=1,
+        topic=first.get("topic") or "Plan",
+        content_angle=first.get("content_angle") or "",
+        status="planned",
+    )
+    db.add(plan)
+    await db.flush()
+    plan_id = plan.id
+
+    created_items: List[PlanItemOut] = [
+        PlanItemOut(
+            day_number=e.get("day_number", i + 1),
+            topic=e.get("topic", ""),
+            content_angle=e.get("content_angle"),
             status="planned",
         )
-        db.add(plan)
-        await db.flush()
-        created_items.append(
-            PlanItemOut(
-                day_number=day_number,
-                topic=topic,
-                content_angle=content_angle,
-                status="planned",
-            )
-        )
-    # Audit: ghi event GENERATE_PLAN
+        for i, e in enumerate(plan_json_entries)
+    ]
+
     await log_audit_event(
         db,
         tenant_id=tenant_id,
         event_type="GENERATE_PLAN",
         actor="SYSTEM",
         content_id=None,
-        metadata_={"days": days, "model": model_used, "used_fallback": used_fallback},
+        metadata_={"days": len(plan_json_entries), "model": model_used, "used_fallback": used_fallback, "plan_id": str(plan_id)},
     )
 
     logger.info(
         "planner.generated",
         tenant_id=str(tenant_id),
-        created=len(created_items),
+        plan_id=str(plan_id),
+        count_created=len(created_items),
         used_ai=used_ai,
         used_fallback=used_fallback,
     )
-    return len(created_items), created_items, used_ai, used_fallback, model_used
+    return len(created_items), created_items, used_ai, used_fallback, model_used, plan_id

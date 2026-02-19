@@ -26,7 +26,7 @@ async def post_planner_generate(
     404 if tenant_id not found; 409 if plan already exists and force=false.
     """
     try:
-        created, items, used_ai, used_fallback, model = await generate_30_day_plan(
+        created, items, used_ai, used_fallback, model, plan_id = await generate_30_day_plan(
             db, payload, force=force, use_ai=ai
         )
     except ValueError as e:
@@ -48,6 +48,7 @@ async def post_planner_generate(
         raise
     return PlannerGenerateResponse(
         tenant_id=payload.tenant_id,
+        plan_id=plan_id,
         created=created,
         items=items,
         used_ai=used_ai,

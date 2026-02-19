@@ -41,15 +41,22 @@ class ContentItem(Base):
     confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     review_state: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rejected_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     # Scheduler: none | scheduled | publishing | published | failed
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     schedule_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     publish_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
     last_publish_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_publish_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_publish_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    external_post_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     require_media: Mapped[bool] = mapped_column(default=False, nullable=False)
     primary_asset_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    channel: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    content_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -117,7 +117,11 @@
 - `GET /` – app name + version
 - `GET /health` – healthcheck
 - `POST /onboarding` – tạo tenant + brand profile (201)
-- `POST /planner/generate?force=false&ai=true` – tạo kế hoạch 30 ngày (201). `ai=true` (mặc định) dùng OpenAI; nếu lỗi hoặc không có `OPENAI_API_KEY` thì tự fallback template. Response có `used_ai`, `used_fallback`, `model`.
+- `POST /planner/generate?force=false&ai=true` – tạo kế hoạch 30 ngày (201). `ai=true` (mặc định) dùng OpenAI; nếu lỗi hoặc không có `OPENAI_API_KEY` thì tự fallback template. Response có `plan_id`, `used_ai`, `used_fallback`, `model`.
+- **Planner 30 ngày + Materialize (Content Plan → Content Items):**
+  - `POST /api/plans/generate` – tạo 1 plan (content_plan với plan_json 30 entries). Body: `{"tenant_id": "...", "days": 30}`. Query: `force`, `ai`. Response: `plan_id`, `created`, `items`.
+  - `POST /api/plans/{plan_id}/materialize` – biến plan thành 30 content_items. Body: `{"tenant_id": "...", "timezone": "Asia/Ho_Chi_Minh", "posting_hours": ["09:00","19:30"], "start_date": "YYYY-MM-DD", "channel": "facebook", "default_status": "draft"}`. Response: `plan_id`, `count_created`, `content_item_ids`. Idempotent: gọi lần 2 trả về `count_created=0`.
+  - `GET /api/plans/{plan_id}` – chi tiết plan + danh sách content_items đã materialize.
 - `POST /content/generate-samples?force=false&ai=true` – tạo sample content (draft), tối đa 20 (cost guard). Tương tự `ai` + fallback. Response có `used_ai`, `used_fallback`, `model`.
 - `GET /content/list?tenant_id=...&status=draft|approved|published` – liệt kê content (optional filter theo status).
 - `POST /content/{content_id}/approve` – duyệt nội dung (HITL). Body: `{"tenant_id": "...", "actor": "HUMAN"}`.
@@ -125,6 +129,10 @@
 - `GET /audit/events?tenant_id=...&limit=50` – audit log (GENERATE_PLAN, GENERATE_CONTENT, AUTO_APPROVED, NEEDS_REVIEW, ESCALATED, APPROVED, REJECTED, PUBLISH_*).
 - `POST /publish/facebook` – đăng một content đã **approved** lên Facebook Page (Graph API). Body: `{"tenant_id": "...", "content_id": "...", "use_latest_asset": false}`. Nếu `require_media=true` và không có asset → 400 `media_required`.
 - `GET /publish/logs?tenant_id=...&limit=50` – danh sách publish logs (queued / success / fail).
+- **HITL Approval (API content_items):**
+  - `POST /api/content_items/{item_id}/approve` – duyệt item. Body: `{"tenant_id": "...", "approved_by": "manual:email@example.com"}`. Response: `item_id`, `status`, `approved_at`.
+  - `POST /api/content_items/{item_id}/reject` – từ chối item. Body: `{"tenant_id": "...", "rejected_by": "manual:...", "reason": "..."}`. Response: `item_id`, `status`.
+  - `GET /api/content_items?tenant_id=...&status=...&channel=...&from=...&to=...&limit=50` – liệt kê items (filter: status draft/approved/rejected/published/publish_failed, channel, from/to scheduled_at).
 - **Google Drive Dropzone + content assets:**
   - `POST /api/gdrive/ingest` – quét folder READY, validate mime/size, tải về LOCAL_MEDIA_DIR, tạo content_assets. Body: `{"tenant_id": "..."}`.
   - `GET /api/assets?tenant_id=...&status=...&content_id=...` – liệt kê assets (filters: status READY/PROCESSED/REJECTED, content_id).
@@ -217,20 +225,28 @@ Thiếu `FACEBOOK_PAGE_ID` hoặc `FACEBOOK_ACCESS_TOKEN` thì `POST /publish/fa
 
 ## Auto Scheduler (đăng bài theo lịch)
 
-Worker chạy trong process FastAPI (single instance, laptop), mỗi **60 giây** quét content đã **approved** và **scheduled** (scheduled_at <= now), gọi Facebook publish. Không dùng Celery/Redis (có thể thêm sau).
+Worker chạy trong process FastAPI (single instance), mỗi **SCHEDULER_INTERVAL_SECONDS** (mặc định 60) quét content_items: **status=approved**, **scheduled_at <= now**, **channel=facebook** (hoặc null), gọi Facebook publish. Idempotent: item đã published thì bỏ qua.
 
-**Cách lên lịch một bài:**
+**Cấu hình ENV:**
 
-1. Content phải ở trạng thái **approved**.
-2. Gọi `POST /content/{content_id}/schedule` với body `{"tenant_id": "<uuid>", "scheduled_at": "2026-02-18T09:00:00"}` (ISO datetime; khuyến nghị UTC hoặc nhất quán Asia/Ho_Chi_Minh).
-3. Scheduler sẽ tự đăng khi `scheduled_at <= now` (trong vòng 60s kể từ thời điểm due).
+| Biến | Mặc định | Mô tả |
+|------|----------|--------|
+| `SCHEDULER_ENABLED` | `true` | Bật/tắt scheduler. |
+| `SCHEDULER_INTERVAL_SECONDS` | `60` | Chu kỳ tick (giây). |
+| `SCHEDULER_TENANT_ID` | (optional) | UUID tenant; set thì chỉ quét tenant này. |
+| `PUBLISH_MAX_RETRIES` | `3` | Sau số lần fail chuyển status sang `publish_failed`. |
 
-**Trạng thái schedule:** `none` | `scheduled` | `publishing` | `published` | `failed`.  
-**Chính sách retry:** tối đa 3 lần; sau mỗi lần fail đặt lại `scheduled_at = now + (publish_attempts * 10 phút)`; sau 3 lần giữ `failed`.
+**Luồng:**
 
+1. Item phải **approved** (ví dụ qua `POST /api/content_items/{item_id}/approve`) và có **scheduled_at** (ví dụ từ materialize hoặc `POST /content/{id}/schedule`).
+2. Scheduler tự đăng khi `scheduled_at <= now` (trong vòng 1 tick).
+3. Thành công: `status=published`, `external_post_id` từ Facebook; ghi `publish_logs`.
+4. Thất bại: tăng `publish_attempts`, `last_publish_attempt_at`, `last_publish_error`; nếu `publish_attempts >= PUBLISH_MAX_RETRIES` → `status=publish_failed`, ngược lại giữ `approved` và đặt lại `scheduled_at` để retry.
+
+**Trạng thái status:** `draft` | `approved` | `rejected` | `published` | `publish_failed`.  
 **Kiểm tra worker:** `GET /scheduler/status` → `enabled`, `interval_seconds`, `last_tick_at`, `pending_count`.
 
-**Smoke test (1 bài lên lịch sau 2 phút):** xem mục "Smoke test Scheduler" bên dưới hoặc chạy `scripts/smoke_test_scheduler.ps1`.
+**Smoke test (approve + scheduler):** xem mục "Smoke test Approval + Scheduler" bên dưới hoặc chạy `scripts/smoke_test_approval_scheduler.sh`.
 
 ---
 
@@ -377,6 +393,49 @@ Script đầy đủ (từ thư mục gốc repo): `scripts/smoke_test_hitl.ps1`.
 
 ---
 
+## Planner 30 ngày + Materialize – Runbook & smoke test
+
+**1) Generate plan (30 ngày, 1 row content_plan + plan_json)**
+
+```bash
+# Thay TENANT_ID bằng UUID tenant có sẵn (ví dụ từ POST /onboarding)
+curl -s -X POST "http://localhost:8000/api/plans/generate?force=false&ai=true" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"TENANT_ID","days":30}'
+```
+
+Kỳ vọng: HTTP 201, body có `plan_id`, `created: 30`, `items` (30 phần tử). Ghi lại `plan_id` cho bước 2.
+
+**2) Materialize plan thành 30 content_items**
+
+```bash
+# Thay PLAN_ID và TENANT_ID
+curl -s -X POST "http://localhost:8000/api/plans/PLAN_ID/materialize" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id":"TENANT_ID",
+    "timezone":"Asia/Ho_Chi_Minh",
+    "posting_hours":["09:00","19:30"],
+    "start_date":"2026-03-01",
+    "channel":"facebook",
+    "default_status":"draft"
+  }'
+```
+
+Kỳ vọng: `plan_id`, `count_created: 30`, `content_item_ids` (30 UUID). Gọi lần 2 cùng plan_id: `count_created: 0`, `content_item_ids` vẫn trả về (idempotent).
+
+**3) Fetch plan + items**
+
+```bash
+curl -s "http://localhost:8000/api/plans/PLAN_ID"
+```
+
+Kỳ vọng: plan (id, tenant_id, title, objective, tone, status, created_at) + `items` (các content item đã materialize: id, title, caption, status, scheduled_at, channel, content_type).
+
+**Smoke test tóm tắt:** onboarding → POST /api/plans/generate → lưu plan_id → POST /api/plans/{plan_id}/materialize → GET /api/plans/{plan_id} → GET /content/list?tenant_id=...&status=draft (thấy 30 items).
+
+---
+
 ## Smoke test Google Drive Dropzone + Assets + Publish
 
 **1) Verify routes**
@@ -432,6 +491,47 @@ Invoke-RestMethod -Uri "$base/publish/logs?tenant_id=$tenantId&limit=10" -Method
 ```
 
 Kỳ vọng: `POST /publish/facebook` trả `status: success` (và `post_id`) khi token hợp lệ; `GET /publish/logs` có ít nhất một bản ghi với `status` success hoặc fail.
+
+---
+
+## Smoke test Approval + Scheduler
+
+Luồng: generate plan → materialize → set scheduled_at = now-1min (patch hoặc SQL) → approve item → đợi ~90s → kiểm tra status=published và publish_logs có bản ghi.
+
+**1) Generate plan + materialize** (xem runbook Planner 30 ngày). Lấy `plan_id`, `tenant_id`.
+
+**2) Lấy item_id đầu tiên (draft):**
+```bash
+curl -s "http://localhost:8000/api/content_items?tenant_id=TENANT_ID&status=draft&limit=1"
+```
+
+**3) Set scheduled_at = 1 phút trước (để scheduler pick ngay).** Dùng PATCH hoặc SQL:
+```bash
+# PATCH (khuyến nghị)
+SCHEDULED_AT=$(python3 -c "from datetime import datetime, timezone, timedelta; print((datetime.now(timezone.utc)-timedelta(minutes=1)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+curl -s -X PATCH "http://localhost:8000/api/content_items/ITEM_ID" \
+  -H "Content-Type: application/json" \
+  -d "{\"tenant_id\":\"TENANT_ID\",\"scheduled_at\":\"$SCHEDULED_AT\"}"
+```
+Hoặc SQL: `UPDATE content_items SET scheduled_at = now() - interval '1 minute', channel = 'facebook' WHERE id = 'ITEM_ID';`
+
+**4) Approve item:**
+```bash
+curl -s -X POST "http://localhost:8000/api/content_items/ITEM_ID/approve" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"TENANT_ID","approved_by":"manual:smoke-test"}'
+```
+
+**5) (Optional) Set SCHEDULER_TENANT_ID** trong .env = TENANT_ID để scheduler chỉ quét tenant này.
+
+**6) Đợi 90 giây**, rồi kiểm tra:
+```bash
+curl -s "http://localhost:8000/api/content_items?tenant_id=TENANT_ID&status=published"
+curl -s "http://localhost:8000/publish/logs?tenant_id=TENANT_ID&limit=5"
+```
+Kỳ vọng: item có trong list published; publish_logs có 1 bản ghi success cho content_id tương ứng.
+
+Script tự động: `./scripts/smoke_test_approval_scheduler.sh [BASE_URL] TENANT_ID` (dùng PATCH để set scheduled_at, đợi 90s rồi kiểm tra published + publish_logs).
 
 ---
 

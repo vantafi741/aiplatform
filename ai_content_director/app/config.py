@@ -61,6 +61,12 @@ class Settings(BaseSettings):
         alias="ASSET_ALLOWED_MIME_VIDEO",
     )
 
+    # Scheduler auto-publish
+    scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
+    scheduler_interval_seconds: int = Field(default=60, alias="SCHEDULER_INTERVAL_SECONDS")
+    scheduler_tenant_id: Optional[str] = Field(default=None, alias="SCHEDULER_TENANT_ID")
+    publish_max_retries: int = Field(default=3, alias="PUBLISH_MAX_RETRIES")
+
 
 @lru_cache
 def get_settings() -> Settings:

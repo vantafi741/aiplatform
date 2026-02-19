@@ -65,9 +65,10 @@ async def approve_content(
     tenant_id: UUID,
     content_id: UUID,
     actor: str = "HUMAN",
+    approved_by: Optional[str] = None,
 ) -> ContentItem:
     """
-    Duyệt nội dung: set status=approved, review_state=approved, approved_at=now.
+    Duyệt nội dung: set status=approved, review_state=approved, approved_at=now, approved_by.
     Ghi event APPROVED. Trả về content item đã cập nhật.
     """
     r = await db.execute(
@@ -89,6 +90,10 @@ async def approve_content(
     item.review_state = "approved"
     item.approved_at = now
     item.rejected_at = None
+    item.rejection_reason = None
+    item.rejected_by = None
+    if approved_by is not None:
+        item.approved_by = approved_by
     await db.flush()
 
     await log_audit_event(
@@ -97,7 +102,7 @@ async def approve_content(
         content_id=content_id,
         event_type="APPROVED",
         actor=actor,
-        metadata_={"approved_at": now.isoformat()},
+        metadata_={"approved_at": now.isoformat(), "approved_by": approved_by},
     )
     logger.info("approval.approved", content_id=str(content_id), tenant_id=str(tenant_id), actor=actor)
     return item
@@ -109,10 +114,11 @@ async def reject_content(
     content_id: UUID,
     reason: str,
     actor: str = "HUMAN",
+    rejected_by: Optional[str] = None,
 ) -> ContentItem:
     """
-    Từ chối nội dung: set review_state=rejected, rejected_at=now.
-    Giữ status (draft). Ghi event REJECTED kèm reason.
+    Từ chối nội dung: set status=rejected, review_state=rejected, rejected_at=now, rejection_reason, rejected_by.
+    Ghi event REJECTED kèm reason.
     """
     r = await db.execute(
         select(ContentItem).where(
@@ -125,8 +131,12 @@ async def reject_content(
         raise ValueError("content_not_found")
 
     now = datetime.now(timezone.utc)
+    item.status = "rejected"
     item.review_state = "rejected"
     item.rejected_at = now
+    item.rejection_reason = reason
+    if rejected_by is not None:
+        item.rejected_by = rejected_by
     await db.flush()
 
     await log_audit_event(
@@ -135,7 +145,7 @@ async def reject_content(
         content_id=content_id,
         event_type="REJECTED",
         actor=actor,
-        metadata_={"reason": reason, "rejected_at": now.isoformat()},
+        metadata_={"reason": reason, "rejected_at": now.isoformat(), "rejected_by": rejected_by},
     )
     logger.info("approval.rejected", content_id=str(content_id), tenant_id=str(tenant_id), actor=actor)
     return item

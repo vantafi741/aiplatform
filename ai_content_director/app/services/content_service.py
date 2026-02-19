@@ -1,4 +1,4 @@
-"""Content generation service: sample posts (OpenAI + deterministic fallback)."""
+"""Content generation service: sample posts (OpenAI + deterministic fallback), list content_items."""
 import json
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
@@ -73,11 +73,23 @@ async def generate_sample_posts(
     q_plans = (
         select(ContentPlan)
         .where(ContentPlan.tenant_id == tenant_id)
-        .order_by(ContentPlan.day_number)
+        .order_by(ContentPlan.created_at.desc())
     )
     r = await db.execute(q_plans)
     plans = list(r.scalars().all())
-    if not plans:
+    expanded: List[Tuple[UUID, str, int, str]] = []
+    for p in plans:
+        if getattr(p, "plan_json", None) and isinstance(p.plan_json, list):
+            for e in p.plan_json:
+                expanded.append((
+                    p.id,
+                    (e.get("topic") or ""),
+                    int(e.get("day_number") or 0),
+                    (e.get("content_angle") or ""),
+                ))
+        else:
+            expanded.append((p.id, (p.topic or ""), (p.day_number or 0), (p.content_angle or "")))
+    if not expanded:
         plan_ids = [None] * count
         topics = [f"Chủ đề mẫu {i + 1}" for i in range(count)]
         day_numbers = list(range(1, count + 1))
@@ -86,10 +98,10 @@ async def generate_sample_posts(
         topics = []
         day_numbers = []
         for i in range(count):
-            p = plans[i % len(plans)]
-            plan_ids.append(p.id)
-            topics.append(p.topic)
-            day_numbers.append(p.day_number)
+            pid, topic, day_num, _ = expanded[i % len(expanded)]
+            plan_ids.append(pid)
+            topics.append(topic)
+            day_numbers.append(day_num)
 
     used_ai = False
     used_fallback = False
@@ -110,13 +122,9 @@ async def generate_sample_posts(
                 "cta_style": (profile.cta_style or "") if profile else "",
             }
             plan_items = [
-                {"day_number": p.day_number, "topic": p.topic, "content_angle": p.content_angle or ""}
-                for p in plans[:count]
+                {"day_number": day_num, "topic": topic, "content_angle": angle}
+                for (_, topic, day_num, angle) in [expanded[i % len(expanded)] for i in range(count)]
             ]
-            if len(plan_items) < count and plans:
-                while len(plan_items) < count:
-                    p = plans[len(plan_items) % len(plans)]
-                    plan_items.append({"day_number": p.day_number, "topic": p.topic, "content_angle": p.content_angle or ""})
 
             # Query KB theo chủ đề / industry để inject vào prompt
             kb_context_str = ""
@@ -397,4 +405,59 @@ async def unschedule_content(
         metadata_={},
     )
     logger.info("content.unscheduled", content_id=str(content_id))
+    return item
+
+
+async def list_content_items(
+    db: AsyncSession,
+    tenant_id: UUID,
+    status: Optional[str] = None,
+    channel: Optional[str] = None,
+    from_date: Optional[datetime] = None,
+    to_date: Optional[datetime] = None,
+    limit: int = 50,
+) -> List[ContentItem]:
+    """
+    Liệt kê content_items của tenant. Filter: status, channel, from (scheduled_at >= from), to (scheduled_at <= to).
+    """
+    q = (
+        select(ContentItem)
+        .where(ContentItem.tenant_id == tenant_id)
+        .order_by(ContentItem.scheduled_at.desc().nulls_last(), ContentItem.created_at.desc())
+        .limit(min(limit, 200))
+    )
+    if status:
+        q = q.where(ContentItem.status == status)
+    if channel:
+        q = q.where(ContentItem.channel == channel)
+    if from_date is not None:
+        q = q.where(ContentItem.scheduled_at >= from_date)
+    if to_date is not None:
+        q = q.where(ContentItem.scheduled_at <= to_date)
+    r = await db.execute(q)
+    return list(r.scalars().all())
+
+
+async def update_content_item_scheduled(
+    db: AsyncSession,
+    tenant_id: UUID,
+    item_id: UUID,
+    scheduled_at: Optional[datetime] = None,
+) -> ContentItem:
+    """
+    Cập nhật scheduled_at của content_item (dùng cho smoke test / runbook).
+    Trả về item đã cập nhật; nếu không tìm thấy raise ValueError("content_not_found").
+    """
+    q = select(ContentItem).where(
+        ContentItem.id == item_id,
+        ContentItem.tenant_id == tenant_id,
+    )
+    r = await db.execute(q)
+    item = r.scalar_one_or_none()
+    if not item:
+        raise ValueError("content_not_found")
+    if scheduled_at is not None:
+        item.scheduled_at = scheduled_at
+    await db.commit()
+    await db.refresh(item)
     return item
