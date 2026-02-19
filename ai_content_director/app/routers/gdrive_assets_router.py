@@ -1,3 +1,4 @@
+from typing import Optional
 """Google Drive ingest + danh sách content assets."""
 from uuid import UUID
 
