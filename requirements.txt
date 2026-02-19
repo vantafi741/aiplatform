@@ -1,4 +1,6 @@
-# Root: deps cho scripts (meta_*, v.v.). Core app dùng ai_content_director/requirements.txt.
-# Đã bỏ: rq (chỉ phục vụ workers/ đã xóa).
+# Root: deps cho scripts (meta_*, v.v.). Core app dÃ¹ng ai_content_director/requirements.txt.
+# ÄÃ£ bá»: rq (chá» phá»¥c vá»¥ workers/ ÄÃ£ xÃ³a).
 python-dotenv==1.0.0
 requests==2.31.0
+SQLAlchemy>=2,<3
+asyncpg>=0.29,<1
