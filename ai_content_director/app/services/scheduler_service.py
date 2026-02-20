@@ -4,6 +4,7 @@ Chạy trong process FastAPI (single instance, laptop). Mỗi 60s tìm item due 
 Tránh double publish: SELECT FOR UPDATE SKIP LOCKED.
 """
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
@@ -73,6 +74,8 @@ async def _tick() -> None:
             q = q.with_for_update(skip_locked=True)
             r = await db.execute(q)
             due_items = list(r.scalars().all())
+            eligible_count = len(due_items)
+            logger.info("scheduler.tick", eligible_count=eligible_count)
             if not due_items:
                 await db.commit()
                 return
@@ -90,6 +93,12 @@ async def _tick() -> None:
 
 async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
     """Publish một item; cập nhật schedule_status, retry theo chính sách."""
+    correlation_id = str(uuid.uuid4())
+    try:
+        import structlog.contextvars
+        structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
+    except Exception:
+        pass
     async with async_session_factory() as db:
         try:
             r = await db.execute(
@@ -107,6 +116,7 @@ async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
                     tenant_id=tenant_id,
                     content_id=content_id,
                     actor="SYSTEM",
+                    use_latest_asset=True,
                 )
             except ValueError as e:
                 error_message = str(e)
@@ -118,7 +128,14 @@ async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
                 item.last_publish_at = now
                 item.last_publish_error = None
                 await db.commit()
-                logger.info("scheduler.published", content_id=str(content_id))
+                logger.info(
+                    "scheduler.publish_result",
+                    endpoint="facebook_publish_post",
+                    status="success",
+                    content_id=str(content_id),
+                    log_id=str(log.id) if log else None,
+                    correlation_id=correlation_id,
+                )
                 return
             # Thất bại: tăng attempts, backoff hoặc failed
             item.publish_attempts = (item.publish_attempts or 0) + 1
@@ -135,7 +152,14 @@ async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
                     metadata_={"reason": "scheduler_max_attempts", "error": error_message},
                 )
                 await db.commit()
-                logger.warning("scheduler.failed_max_attempts", content_id=str(content_id))
+                logger.warning(
+                    "scheduler.publish_result",
+                    endpoint="facebook_publish_post",
+                    status="fail",
+                    content_id=str(content_id),
+                    error_message=error_message,
+                    correlation_id=correlation_id,
+                )
             else:
                 # Retry: đặt lại scheduled_at = now + (attempts * 10 phút)
                 delta_minutes = item.publish_attempts * RETRY_BACKOFF_MINUTES
@@ -143,13 +167,22 @@ async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
                 item.schedule_status = "scheduled"
                 await db.commit()
                 logger.info(
-                    "scheduler.retry_scheduled",
+                    "scheduler.publish_result",
+                    endpoint="facebook_publish_post",
+                    status="retry_scheduled",
                     content_id=str(content_id),
+                    error_message=error_message,
                     attempt=item.publish_attempts,
                     next_at=item.scheduled_at.isoformat(),
+                    correlation_id=correlation_id,
                 )
         except Exception as e:
-            logger.warning("scheduler.publish_one_error", content_id=str(content_id), error=str(e))
+            logger.warning(
+                "scheduler.publish_one_error",
+                content_id=str(content_id),
+                error=str(e),
+                correlation_id=correlation_id,
+            )
             await db.rollback()
 
 

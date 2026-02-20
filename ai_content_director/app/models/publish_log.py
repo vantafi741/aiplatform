@@ -40,3 +40,4 @@ class PublishLog(Base):
 
     content_item = relationship("ContentItem", back_populates="publish_logs")
     post_metrics = relationship("PostMetrics", back_populates="publish_log")
+    lead_signals = relationship("LeadSignal", back_populates="publish_log")

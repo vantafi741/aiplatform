@@ -9,6 +9,8 @@ services:
       context: ./ai_content_director
       dockerfile: Dockerfile
     container_name: ai-content-director-api
+    # Expose API: production nên dùng Nginx/Caddy reverse proxy, chỉ expose 80/443.
+    # TODO: Nếu dùng Nginx/Caddy, bind 127.0.0.1:8000:8000 và proxy từ 80/443.
     ports:
       - "8000:8000"
     env_file:
@@ -35,8 +37,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ai_content_director
+    # Chỉ bind localhost: không expose Postgres ra mạng (chỉ API container + host debug).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -49,8 +52,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ai-ecosystem-redis
+    # Chỉ bind localhost: không expose Redis ra mạng.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

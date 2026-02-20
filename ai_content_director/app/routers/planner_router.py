@@ -1,10 +1,13 @@
 """30-day content planner API."""
+from typing import Union
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.schemas.planner import PlannerGenerateRequest, PlannerGenerateResponse
 from app.services.planner_service import generate_30_day_plan
+from app.utils.query_params import ensure_bool_query
 
 router = APIRouter(prefix="/planner", tags=["planner"])
 
@@ -18,16 +21,17 @@ async def post_planner_generate(
     payload: PlannerGenerateRequest,
     db: AsyncSession = Depends(get_db),
     force: bool = Query(False, description="Replace existing plan if already 30 days"),
-    ai: bool = Query(True, description="Use OpenAI when true; fallback to template if AI fails or key missing"),
+    ai: Union[bool, str] = Query(True, description="Use OpenAI when true; false disables LLM (template only)"),
 ) -> PlannerGenerateResponse:
     """
     Generate 30-day (or custom days) content plan for tenant.
-    When ai=true uses OpenAI; on failure or missing OPENAI_API_KEY falls back to deterministic template.
+    When ai=true uses OpenAI; ai=false disables LLM (template only). On failure or missing key falls back to template.
     404 if tenant_id not found; 409 if plan already exists and force=false.
     """
+    use_ai = ensure_bool_query(ai)
     try:
         created, items, used_ai, used_fallback, model = await generate_30_day_plan(
-            db, payload, force=force, use_ai=ai
+            db, payload, force=force, use_ai=use_ai
         )
     except ValueError as e:
         if str(e) == "tenant_not_found":

@@ -48,13 +48,17 @@ class ContentItem(Base):
     publish_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
     last_publish_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_publish_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    require_media: Mapped[bool] = mapped_column(default=True, nullable=False)
+    primary_asset_type: Mapped[str] = mapped_column(String(16), default="image", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
     )
 
     tenant = relationship("Tenant", back_populates="content_items")
+    content_assets = relationship("ContentAsset", back_populates="content_item")
     plan = relationship("ContentPlan", back_populates="content_items")
     publish_logs = relationship("PublishLog", back_populates="content_item")
     approval_events = relationship("ApprovalEvent", back_populates="content_item")
     post_metrics = relationship("PostMetrics", back_populates="content_item")
+    lead_signals = relationship("LeadSignal", back_populates="content_item")

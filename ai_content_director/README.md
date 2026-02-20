@@ -110,12 +110,20 @@
 - `app/services/` – onboarding, planner, content, facebook_publish, kb_service (query ILIKE, build_kb_context_string)
 - `alembic/` – migrations (env dùng DATABASE_URL, autogenerate từ models)
 - `Dockerfile`, `docker-compose.yml` – API + Postgres 16 + Redis (optional)
-- `.env.example` – đủ key: APP_ENV, DATABASE_URL, LOG_LEVEL, OPENAI_*, FACEBOOK_*, REDIS_URL
+- `.env.example` – đủ key: APP_ENV, DATABASE_URL, LOG_LEVEL, OPENAI_*, FACEBOOK_*, REDIS_URL, WEBHOOK_URL (AI Lead)
+
+## AI Lead System (Facebook → lead_signals → follow-up)
+
+- **POST /webhooks/facebook** – nhận event comment/inbox; classify intent (rule-first, LLM optional); ghi `lead_signals`, audit `LEAD_SIGNAL_CREATED`, gọi n8n khi `priority=high` (ENV `WEBHOOK_URL`).
+- **GET /api/leads** – list lead theo `tenant_id`, filter `status`, pagination.
+- Cấu hình: `WEBHOOK_URL`, `LEAD_CLASSIFY_USE_LLM`. Chi tiết: **docs/LEAD_SIGNALS_RUNBOOK.md**.
 
 ## API
 
 - `GET /` – app name + version
 - `GET /health` – healthcheck
+- `POST /webhooks/facebook` – webhook Facebook (comment/inbox) → lead_signals (body/header `tenant_id`).
+- `GET /api/leads?tenant_id=...&status=...&limit=50&offset=0` – list lead signals.
 - `POST /onboarding` – tạo tenant + brand profile (201)
 - `POST /planner/generate?force=false&ai=true` – tạo kế hoạch 30 ngày (201). `ai=true` (mặc định) dùng OpenAI; nếu lỗi hoặc không có `OPENAI_API_KEY` thì tự fallback template. Response có `used_ai`, `used_fallback`, `model`.
 - `POST /content/generate-samples?force=false&ai=true` – tạo sample content (draft), tối đa 20 (cost guard). Tương tự `ai` + fallback. Response có `used_ai`, `used_fallback`, `model`.
@@ -355,6 +363,71 @@ Invoke-RestMethod -Uri "$base/content/$contentId/reject" -Method Post -ContentTy
 ```
 
 Script đầy đủ (từ thư mục gốc repo): `scripts/smoke_test_hitl.ps1`.
+
+---
+
+## Google Drive Dropzone + Media-required Facebook Publish
+
+Đăng bài Facebook có thể **bắt buộc ít nhất 1 ảnh/video** (từ Google Drive). Asset được quét từ thư mục READY, tải về local, sau khi đăng thành công file Drive được chuyển sang PROCESSED; lỗi hoặc invalid → REJECTED.
+
+### Cấu hình Drive folder IDs
+
+1. Trên Google Drive tạo 4 thư mục (hoặc dùng có sẵn): **Ready Images**, **Ready Videos**, **Processed**, **Rejected**.
+2. Mở từng thư mục → URL dạng `https://drive.google.com/drive/folders/FOLDER_ID` → copy `FOLDER_ID`.
+3. Trong `.env` đặt:
+   - `GDRIVE_READY_IMAGES_FOLDER_ID` – thư mục chứa ảnh chờ ingest (jpeg, png, webp; tối đa `ASSET_MAX_IMAGE_MB` MB).
+   - `GDRIVE_READY_VIDEOS_FOLDER_ID` – thư mục chứa video chờ ingest (mp4, quicktime; tối đa `ASSET_MAX_VIDEO_MB` MB).
+   - `GDRIVE_PROCESSED_FOLDER_ID` – file đã đăng thành công sẽ được chuyển vào đây.
+   - `GDRIVE_REJECTED_FOLDER_ID` – file lỗi/không đúng định dạng/size sẽ được chuyển vào đây.
+
+### Upload gdrive-sa.json lên VPS
+
+1. Tạo Service Account trong [Google Cloud Console](https://console.cloud.google.com/) → IAM & Admin → Service Accounts → Create. Tải JSON key.
+2. Đặt tên file ví dụ `gdrive-sa.json`, **không commit** vào git.
+3. Trên VPS (hoặc máy chạy API):
+   - Copy file lên thư mục an toàn, ví dụ `/opt/aiplatform/secrets/gdrive-sa.json`.
+   - Trong `.env` đặt: `GDRIVE_SA_JSON_PATH=/opt/aiplatform/secrets/gdrive-sa.json`.
+   - Đảm bảo thư mục Drive (Ready/Processed/Rejected) **đã share với email Service Account** (quyền Xem + Chỉnh sửa cho Processed/Rejected).
+
+### Biến môi trường
+
+| Biến | Mặc định | Mô tả |
+|------|----------|--------|
+| `GDRIVE_SA_JSON_PATH` | (bắt buộc) | Đường dẫn file JSON Service Account. |
+| `GDRIVE_READY_IMAGES_FOLDER_ID` | (bắt buộc) | Folder ID chứa ảnh chờ ingest. |
+| `GDRIVE_READY_VIDEOS_FOLDER_ID` | (tùy chọn) | Folder ID chứa video chờ ingest. |
+| `GDRIVE_PROCESSED_FOLDER_ID` | (bắt buộc) | Folder chứa file đã đăng xong. |
+| `GDRIVE_REJECTED_FOLDER_ID` | (bắt buộc) | Folder chứa file lỗi/invalid. |
+| `LOCAL_MEDIA_DIR` | `/opt/aiplatform/media_cache` | Thư mục local lưu file tải từ Drive. |
+| `ASSET_MAX_IMAGE_MB` | `10` | Giới hạn size ảnh (MB). |
+| `ASSET_MAX_VIDEO_MB` | `200` | Giới hạn size video (MB). |
+
+### API
+
+- **POST /api/gdrive/ingest** – Body: `{"tenant_id": "..."}`. Quét thư mục READY, tải file về local, ghi bảng `content_assets`. Trả về `count_ingested`, `count_invalid`.
+- **GET /api/assets?tenant_id=...&status=...** – Liệt kê assets (lọc `status`: ready, cached, invalid, uploaded).
+
+### Media-required publish
+
+- `content_items.require_media` mặc định `true`; `primary_asset_type` mặc định `image`.
+- **POST /publish/facebook**: nếu content `require_media` và không có asset nào (ready/cached) gắn content → trả 400 với `code: "media_required"` và ghi publish_log fail.
+- Có thể dùng asset "unattached" mới nhất của tenant: gửi `"use_latest_asset": true` trong body. Scheduler tự dùng `use_latest_asset=true` khi không có asset gắn content.
+- Ảnh: upload lên Page (published=false) → tạo feed post với `attached_media`. Video: upload với description → Graph trả về post_id. Sau khi đăng thành công: cập nhật asset `fb_media_fbid`/`fb_video_id`, `status=uploaded`, chuyển file Drive sang PROCESSED; lỗi → REJECTED và ghi `error_reason`.
+
+### Smoke test (Google Drive + Assets + Publish)
+
+1. Cấu hình `.env`: `GDRIVE_SA_JSON_PATH`, 4 folder IDs, `LOCAL_MEDIA_DIR` (có thể dùng `./media_cache` khi chạy local).
+2. Chạy migration: `alembic upgrade head`.
+3. Cho ảnh/video vào thư mục READY (đúng định dạng, dưới size limit). Share folder với Service Account.
+4. Gọi ingest:
+   ```bash
+   curl -s -X POST http://localhost:8000/api/gdrive/ingest -H "Content-Type: application/json" -d "{\"tenant_id\":\"<TENANT_UUID>\"}"
+   ```
+   Kỳ vọng: `count_ingested` ≥ 0, `count_invalid` ≥ 0.
+5. Xem assets: `GET /api/assets?tenant_id=<TENANT_UUID>&status=cached`.
+6. (Tùy chọn) Gắn asset với content: cập nhật `content_assets.content_id` bằng content_id đã approved (qua DB hoặc API cập nhật sau).
+7. Đăng Facebook: `POST /publish/facebook` với `tenant_id`, `content_id` (đã approved). Nếu có asset cached và `require_media=true` có thể dùng `use_latest_asset: true` để dùng asset unattached mới nhất.
+8. Kiểm tra: file trong Drive đã chuyển sang PROCESSED; `GET /api/assets?status=uploaded` có bản ghi tương ứng.
 
 ---
 
