@@ -11,6 +11,8 @@ from app.models.approval_event import ApprovalEvent
 from app.models.post_metrics import PostMetrics
 from app.models.kb_item import KbItem
 from app.models.ai_usage_log import AiUsageLog
+from app.models.lead_signal import LeadSignal
+from app.models.content_asset import ContentAsset
 
 __all__ = [
     "Tenant",
@@ -25,4 +27,6 @@ __all__ = [
     "PostMetrics",
     "KbItem",
     "AiUsageLog",
+    "LeadSignal",
+    "ContentAsset",
 ]
