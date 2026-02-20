@@ -1,4 +1,5 @@
 """Content items API: generate samples, list, approve, reject (HITL)."""
+from typing import Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,6 +20,7 @@ from app.schemas.content import (
 )
 from app.services.content_service import generate_sample_posts, list_content, schedule_content, unschedule_content
 from app.services.approval_service import approve_content, reject_content
+from app.utils.query_params import ensure_bool_query
 
 router = APIRouter(prefix="/content", tags=["content"])
 
@@ -32,16 +34,17 @@ async def post_content_generate_samples(
     payload: ContentGenerateSamplesRequest,
     db: AsyncSession = Depends(get_db),
     force: bool = Query(False, description="Allow generating when samples already exist"),
-    ai: bool = Query(True, description="Use OpenAI when true; fallback to template if AI fails or key missing"),
+    ai: Union[bool, str] = Query(True, description="Use OpenAI when true; false disables LLM (template only)"),
 ) -> ContentGenerateSamplesResponse:
     """
     Generate sample content items (draft) for tenant. Max count=20 (cost guard).
-    When ai=true uses OpenAI; on failure or missing OPENAI_API_KEY falls back to deterministic template.
+    When ai=true uses OpenAI; ai=false disables LLM (template only). On failure or missing key falls back to template.
     404 if tenant_id not found; 409 if already >= count items and force=false.
     """
+    use_ai = ensure_bool_query(ai)
     try:
         created, items, used_ai, used_fallback, model = await generate_sample_posts(
-            db, payload, force=force, use_ai=ai
+            db, payload, force=force, use_ai=use_ai
         )
     except ValueError as e:
         if str(e) == "tenant_not_found":
@@ -118,6 +121,8 @@ async def post_content_approve(
         publish_attempts=item.publish_attempts,
         last_publish_error=item.last_publish_error,
         last_publish_at=item.last_publish_at,
+        require_media=getattr(item, "require_media", True),
+        primary_asset_type=getattr(item, "primary_asset_type", "image"),
     )
 
 
@@ -207,4 +212,6 @@ async def post_content_reject(
         publish_attempts=item.publish_attempts,
         last_publish_error=item.last_publish_error,
         last_publish_at=item.last_publish_at,
+        require_media=getattr(item, "require_media", True),
+        primary_asset_type=getattr(item, "primary_asset_type", "image"),
     )

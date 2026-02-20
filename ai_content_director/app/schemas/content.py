@@ -14,7 +14,7 @@ class ContentGenerateSamplesRequest(BaseModel):
 
 
 class ContentItemOut(BaseModel):
-    """Single content item (HITL + scheduler fields)."""
+    """Single content item (HITL + scheduler + media-required fields)."""
 
     id: UUID
     title: str
@@ -30,6 +30,8 @@ class ContentItemOut(BaseModel):
     publish_attempts: Optional[int] = None
     last_publish_error: Optional[str] = None
     last_publish_at: Optional[datetime] = None
+    require_media: bool = True
+    primary_asset_type: str = "image"
 
 
 class ContentGenerateSamplesResponse(BaseModel):

@@ -1,8 +1,12 @@
 """
 Đăng bài đã APPROVED lên Facebook Page qua Graph API.
-Chỉ dùng Graph API, không headless; ghi publish_logs và audit events.
+- Nếu content.require_media: bắt buộc có ít nhất 1 asset (ready/cached); không có thì 400 media_required.
+- Image: upload /{page_id}/photos published=false -> media_fbid, rồi tạo feed post với attached_media.
+- Video: upload /{page_id}/videos với description -> lưu video_id/post_id.
+- Cập nhật content_assets (fb_media_fbid/fb_video_id, status=uploaded); di chuyển file Drive sang PROCESSED/REJECTED.
 """
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Tuple
 from uuid import UUID
 
@@ -12,15 +16,76 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.logging_config import get_logger
-from app.models import ContentItem, PublishLog
+from app.models import ContentAsset, ContentItem, PublishLog
 from app.services.approval_service import log_audit_event
+from app.services.gdrive_dropzone import move_file
 
 logger = get_logger(__name__)
 
 PLATFORM_FACEBOOK = "facebook"
 GRAPH_BASE = "https://graph.facebook.com"
 HTTP_TIMEOUT = 30.0
+VIDEO_UPLOAD_TIMEOUT = 300.0  # Video có thể upload lâu
 MAX_RETRIES = 2
+
+ASSET_STATUS_READY = "ready"
+ASSET_STATUS_CACHED = "cached"
+ASSET_STATUS_UPLOADED = "uploaded"
+
+
+async def _get_asset_for_publish(
+    db: AsyncSession,
+    tenant_id: UUID,
+    content_id: UUID,
+    use_latest_asset: bool,
+) -> Optional[ContentAsset]:
+    """
+    Lấy 1 asset để đăng: ưu tiên asset gắn content_id, status in (ready, cached).
+    Nếu không có và use_latest_asset=True: lấy asset unattached (content_id null) mới nhất của tenant.
+    """
+    # Ưu tiên asset đã gắn content
+    q = (
+        select(ContentAsset)
+        .where(
+            ContentAsset.tenant_id == tenant_id,
+            ContentAsset.content_id == content_id,
+            ContentAsset.status.in_([ASSET_STATUS_READY, ASSET_STATUS_CACHED]),
+        )
+        .order_by(ContentAsset.created_at.desc())
+        .limit(1)
+    )
+    r = await db.execute(q)
+    asset = r.scalar_one_or_none()
+    if asset:
+        return asset
+    if not use_latest_asset:
+        return None
+    q2 = (
+        select(ContentAsset)
+        .where(
+            ContentAsset.tenant_id == tenant_id,
+            ContentAsset.content_id.is_(None),
+            ContentAsset.status.in_([ASSET_STATUS_READY, ASSET_STATUS_CACHED]),
+        )
+        .order_by(ContentAsset.created_at.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(q2)
+    return r2.scalar_one_or_none()
+
+
+def _move_asset_to_processed_or_rejected(asset: ContentAsset, success: bool, error_reason: Optional[str] = None) -> None:
+    """Di chuyển file Drive sang PROCESSED (success) hoặc REJECTED (fail). Cập nhật DB gọi ở ngoài."""
+    settings = get_settings()
+    if not settings.gdrive_processed_folder_id or not settings.gdrive_rejected_folder_id:
+        return
+    try:
+        if success:
+            move_file(asset.drive_file_id, settings.gdrive_processed_folder_id)
+        else:
+            move_file(asset.drive_file_id, settings.gdrive_rejected_folder_id)
+    except Exception as e:
+        logger.warning("facebook_publish.move_drive_failed", asset_id=str(asset.id), error=str(e))
 
 
 async def publish_post(
@@ -28,19 +93,20 @@ async def publish_post(
     tenant_id: UUID,
     content_id: UUID,
     actor: str = "HUMAN",
+    use_latest_asset: bool = False,
 ) -> Tuple[PublishLog, Optional[str]]:
     """
     Đăng một content_item lên Facebook Page (chỉ khi status == "approved").
-    - Tạo PublishLog status=queued, ghi PUBLISH_REQUESTED.
-    - Gọi Graph API POST /{page_id}/feed.
-    - Cập nhật log success/fail, ghi PUBLISH_SUCCESS hoặc PUBLISH_FAIL.
+    - Nếu require_media: cần ít nhất 1 asset (ready/cached); không có -> ValueError("media_required").
+    - Image: upload photos published=false -> media_fbid, rồi POST feed với attached_media.
+    - Video: upload videos với description -> post_id.
+    - Cập nhật content_assets (fb_media_fbid/fb_video_id, status=uploaded); move Drive file PROCESSED/REJECTED.
     Trả về (publish_log, error_message). error_message chỉ có khi fail.
     """
     settings = get_settings()
     if not settings.facebook_page_id or not settings.facebook_access_token:
         raise ValueError("facebook_not_configured")
 
-    # Load content, kiểm tra thuộc tenant và status == approved
     r = await db.execute(
         select(ContentItem).where(
             ContentItem.id == content_id,
@@ -52,6 +118,10 @@ async def publish_post(
         raise ValueError("content_not_found")
     if item.status != "approved":
         raise ValueError("content_not_approved")
+
+    message = (item.caption or "").strip() or item.title
+    if item.hashtags:
+        message = f"{message}\n\n{item.hashtags}".strip()
 
     # Tạo log queued và audit PUBLISH_REQUESTED
     log = PublishLog(
@@ -71,88 +141,242 @@ async def publish_post(
         metadata_={"platform": PLATFORM_FACEBOOK},
     )
 
-    # Nội dung bài: caption hoặc title + caption
-    message = (item.caption or "").strip() or item.title
-    if item.hashtags:
-        message = f"{message}\n\n{item.hashtags}".strip()
+    # require_media: bắt buộc có asset
+    asset: Optional[ContentAsset] = None
+    if getattr(item, "require_media", True):
+        asset = await _get_asset_for_publish(db, tenant_id, content_id, use_latest_asset)
+        if not asset:
+            log.status = "fail"
+            log.error_message = "media_required"
+            log.published_at = None
+            await db.flush()
+            await log_audit_event(
+                db,
+                tenant_id=tenant_id,
+                content_id=content_id,
+                event_type="PUBLISH_FAIL",
+                actor=actor,
+                metadata_={"platform": PLATFORM_FACEBOOK, "error": "media_required"},
+            )
+            logger.warning("facebook_publish.media_required", content_id=str(content_id))
+            return log, "media_required"
 
-    url = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/feed"
-    payload = {
-        "message": message,
-        "access_token": settings.facebook_access_token,
-    }
-
+    # Đăng theo loại: có asset thì image/video; không thì feed thuần (text)
     last_error: Optional[str] = None
     http_status: Optional[int] = None
+    post_id: Optional[str] = None
 
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-                resp = await client.post(url, data=payload)
-            http_status = resp.status_code
-            if resp.status_code == 200:
-                data = resp.json()
-                post_id = data.get("id") or data.get("post_id")
-                if not post_id and "id" in data:
-                    post_id = str(data["id"])
-                now = datetime.now(timezone.utc)
-                log.status = "success"
-                log.post_id = post_id
-                log.published_at = now
-                log.error_message = None
-                item.status = "published"
-                await db.flush()
-                await log_audit_event(
-                    db,
-                    tenant_id=tenant_id,
-                    content_id=content_id,
-                    event_type="PUBLISH_SUCCESS",
-                    actor=actor,
-                    metadata_={"platform": PLATFORM_FACEBOOK, "post_id": post_id, "http_status": resp.status_code},
-                )
-                logger.info(
-                    "facebook_publish.success",
-                    content_id=str(content_id),
-                    post_id=post_id,
-                )
-                return log, None
-            # Lỗi từ API
+    if asset:
+        if asset.asset_type == "video":
+            # Upload video: POST /{page_id}/videos, description=message
+            post_id, last_error, http_status = await _publish_video(
+                settings.facebook_page_id,
+                settings.facebook_access_token,
+                settings.facebook_api_version,
+                asset,
+                message,
+            )
+        else:
+            # Upload ảnh: POST /{page_id}/photos published=false, rồi POST feed với attached_media
+            post_id, last_error, http_status = await _publish_photo(
+                settings.facebook_page_id,
+                settings.facebook_access_token,
+                settings.facebook_api_version,
+                asset,
+                message,
+            )
+
+        if last_error:
+            asset.error_reason = last_error
+            _move_asset_to_processed_or_rejected(asset, success=False, error_reason=last_error)
+        else:
+            asset.status = ASSET_STATUS_UPLOADED
+            if asset.asset_type == "video":
+                asset.fb_video_id = post_id  # Graph trả về id có thể là video id hoặc post id
+            else:
+                asset.fb_media_fbid = post_id  # photo id
+            if asset.content_id is None:
+                asset.content_id = content_id
+            await db.flush()
+            _move_asset_to_processed_or_rejected(asset, success=True)
+    else:
+        # Text-only feed (require_media=False)
+        url = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/feed"
+        payload = {
+            "message": message,
+            "access_token": settings.facebook_access_token,
+        }
+        for attempt in range(MAX_RETRIES + 1):
             try:
-                err_body = resp.json()
-                err_msg = err_body.get("error", {}).get("message", resp.text) or resp.text
-            except Exception:
-                err_msg = resp.text or f"HTTP {resp.status_code}"
-            last_error = err_msg
-        except httpx.TimeoutException as e:
-            last_error = f"Timeout: {e}"
-            http_status = None
-        except httpx.RequestError as e:
-            last_error = str(e)
-            resp_obj = getattr(e, "response", None)
-            http_status = resp_obj.status_code if resp_obj is not None else None
+                async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                    resp = await client.post(url, data=payload)
+                http_status = resp.status_code
+                if resp.status_code == 200:
+                    data = resp.json()
+                    post_id = data.get("id") or data.get("post_id") or (str(data["id"]) if "id" in data else None)
+                    break
+                try:
+                    err_body = resp.json()
+                    last_error = err_body.get("error", {}).get("message", resp.text) or resp.text
+                except Exception:
+                    last_error = resp.text or f"HTTP {resp.status_code}"
+            except httpx.TimeoutException as e:
+                last_error = f"Timeout: {e}"
+                http_status = None
+            except httpx.RequestError as e:
+                last_error = str(e)
+                resp_obj = getattr(e, "response", None)
+                http_status = resp_obj.status_code if resp_obj is not None else None
+            if attempt < MAX_RETRIES:
+                logger.warning("facebook_publish.retry", attempt=attempt + 1, error=last_error)
 
-        if attempt < MAX_RETRIES:
-            logger.warning("facebook_publish.retry", attempt=attempt + 1, error=last_error)
+    if last_error or not post_id:
+        log.status = "fail"
+        log.error_message = last_error
+        log.published_at = None
+        await db.flush()
+        await log_audit_event(
+            db,
+            tenant_id=tenant_id,
+            content_id=content_id,
+            event_type="PUBLISH_FAIL",
+            actor=actor,
+            metadata_={
+                "platform": PLATFORM_FACEBOOK,
+                "http_status": http_status,
+                "error": last_error,
+            },
+        )
+        logger.warning("facebook_publish.fail", content_id=str(content_id), error=last_error)
+        return log, last_error
 
-    # Fail sau tất cả retry
-    log.status = "fail"
-    log.error_message = last_error
-    log.published_at = None
+    now = datetime.now(timezone.utc)
+    log.status = "success"
+    log.post_id = post_id
+    log.published_at = now
+    log.error_message = None
+    item.status = "published"
     await db.flush()
     await log_audit_event(
         db,
         tenant_id=tenant_id,
         content_id=content_id,
-        event_type="PUBLISH_FAIL",
+        event_type="PUBLISH_SUCCESS",
         actor=actor,
-        metadata_={
-            "platform": PLATFORM_FACEBOOK,
-            "http_status": http_status,
-            "error": last_error,
-        },
+        metadata_={"platform": PLATFORM_FACEBOOK, "post_id": post_id, "http_status": http_status or 200},
     )
-    logger.warning("facebook_publish.fail", content_id=str(content_id), error=last_error)
-    return log, last_error
+    logger.info("facebook_publish.success", content_id=str(content_id), post_id=post_id)
+    return log, None
+
+
+async def _publish_photo(
+    page_id: str,
+    access_token: str,
+    api_version: str,
+    asset: ContentAsset,
+    message: str,
+) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+    """
+    Upload ảnh lên page (published=false), lấy photo id, rồi tạo feed post với attached_media.
+    Trả về (post_id, error, http_status).
+    """
+    local_path = asset.local_path
+    if not local_path or not Path(local_path).is_file():
+        return None, "asset_local_file_missing", None
+
+    url = f"{GRAPH_BASE}/{api_version}/{page_id}/photos"
+    data = {"access_token": access_token, "published": "false"}
+
+    try:
+        with open(local_path, "rb") as f:
+            files = {"source": (asset.file_name or "image", f, asset.mime_type or "image/jpeg")}
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                resp = await client.post(url, data=data, files=files)
+        if resp.status_code != 200:
+            try:
+                err_body = resp.json()
+                err_msg = err_body.get("error", {}).get("message", resp.text) or resp.text
+            except Exception:
+                err_msg = resp.text or f"HTTP {resp.status_code}"
+            return None, err_msg, resp.status_code
+        data_res = resp.json()
+        photo_id = data_res.get("id") or data_res.get("post_id")
+        if not photo_id and "id" in data_res:
+            photo_id = str(data_res["id"])
+        if not photo_id:
+            return None, "photo_upload_no_id", resp.status_code
+
+        # Tạo feed post với ảnh đính kèm
+        feed_url = f"{GRAPH_BASE}/{api_version}/{page_id}/feed"
+        feed_payload = {
+            "message": message,
+            "access_token": access_token,
+            "attached_media": [{"media_fbid": photo_id}],
+        }
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            feed_resp = await client.post(feed_url, data=feed_payload)
+        if feed_resp.status_code != 200:
+            try:
+                err_body = feed_resp.json()
+                err_msg = err_body.get("error", {}).get("message", feed_resp.text) or feed_resp.text
+            except Exception:
+                err_msg = feed_resp.text or f"HTTP {feed_resp.status_code}"
+            return None, err_msg, feed_resp.status_code
+        feed_data = feed_resp.json()
+        post_id = feed_data.get("id") or feed_data.get("post_id") or (str(feed_data["id"]) if "id" in feed_data else None)
+        return post_id, None, feed_resp.status_code
+    except httpx.TimeoutException as e:
+        return None, f"Timeout: {e}", None
+    except httpx.RequestError as e:
+        return None, str(e), getattr(getattr(e, "response", None), "status_code", None)
+    except Exception as e:
+        return None, str(e), None
+
+
+async def _publish_video(
+    page_id: str,
+    access_token: str,
+    api_version: str,
+    asset: ContentAsset,
+    message: str,
+) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+    """
+    Upload video lên page với description=message. Graph trả về id (video/post).
+    Trả về (post_id hoặc video_id, error, http_status).
+    """
+    local_path = asset.local_path
+    if not local_path or not Path(local_path).is_file():
+        return None, "asset_local_file_missing", None
+
+    url = f"{GRAPH_BASE}/{api_version}/{page_id}/videos"
+    data = {
+        "access_token": access_token,
+        "description": message,
+    }
+    try:
+        with open(local_path, "rb") as f:
+            files = {"source": (asset.file_name or "video", f, asset.mime_type or "video/mp4")}
+            async with httpx.AsyncClient(timeout=VIDEO_UPLOAD_TIMEOUT) as client:
+                resp = await client.post(url, data=data, files=files)
+        if resp.status_code != 200:
+            try:
+                err_body = resp.json()
+                err_msg = err_body.get("error", {}).get("message", resp.text) or resp.text
+            except Exception:
+                err_msg = resp.text or f"HTTP {resp.status_code}"
+            return None, err_msg, resp.status_code
+        data_res = resp.json()
+        # Video upload có thể trả về "id" (video) và "post_id" (bài đăng trên page)
+        post_id = data_res.get("post_id") or data_res.get("id")
+        if not post_id and "id" in data_res:
+            post_id = str(data_res["id"])
+        return post_id, None, resp.status_code
+    except httpx.TimeoutException as e:
+        return None, f"Timeout: {e}", None
+    except httpx.RequestError as e:
+        return None, str(e), getattr(getattr(e, "response", None), "status_code", None)
+    except Exception as e:
+        return None, str(e), None
 
 
 async def list_publish_logs(

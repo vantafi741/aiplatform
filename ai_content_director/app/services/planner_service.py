@@ -130,7 +130,7 @@ async def generate_30_day_plan(
     model_used: Optional[str] = None
     topics: List[Tuple[int, str, str]] = []
 
-    if use_ai and settings.openai_api_key:
+    if use_ai is True and settings.openai_api_key:
         try:
             if await is_over_budget(db, tenant_id):
                 raise ValueError("budget_exceeded")
@@ -164,7 +164,7 @@ async def generate_30_day_plan(
             logger.info("planner.llm_fallback", reason=str(e))
             used_fallback = True
             topics = _build_plan_topics(industry, main_services_list, brand_tone, days)
-    elif use_ai and not settings.openai_api_key:
+    elif use_ai is True and not settings.openai_api_key:
         used_fallback = True
         topics = _build_plan_topics(industry, main_services_list, brand_tone, days)
     else:

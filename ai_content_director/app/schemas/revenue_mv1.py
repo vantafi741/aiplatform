@@ -89,3 +89,18 @@ class PlanGenerateResponse(BaseModel):
     """Response for POST /api/plans/generate (201)."""
 
     plan: PlanOut
+
+
+# --- POST /api/plans/{plan_id}/materialize ---
+class PlanMaterializeRequest(BaseModel):
+    """Request body for POST /api/plans/{plan_id}/materialize."""
+
+    tenant_id: UUID = Field(..., description="Tenant UUID (must match plan's tenant)")
+
+
+class PlanMaterializeResponse(BaseModel):
+    """Response for POST /api/plans/{plan_id}/materialize (200)."""
+
+    plan_id: str = Field(..., description="Generated plan UUID")
+    content_plans_created: int = Field(..., ge=0)
+    content_items_created: int = Field(..., ge=0)

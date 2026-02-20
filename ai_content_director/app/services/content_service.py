@@ -96,7 +96,7 @@ async def generate_sample_posts(
     model_used: Optional[str] = None
     posts_data: List[Tuple[Optional[UUID], int, str, str, str, float]] = []
 
-    if use_ai and settings.openai_api_key:
+    if use_ai is True and settings.openai_api_key:
         try:
             if await is_over_budget(db, tenant_id):
                 raise ValueError("budget_exceeded")
@@ -194,7 +194,7 @@ async def generate_sample_posts(
                 topic = topics[i]
                 title, caption, hashtags = _make_sample_post(day_number, topic, industry, i)
                 posts_data.append((plan_id, day_number, title, caption, hashtags, DEFAULT_CONFIDENCE))
-    elif use_ai and not settings.openai_api_key:
+    elif use_ai is True and not settings.openai_api_key:
         used_fallback = True
         for i in range(count):
             plan_id = plan_ids[i]
@@ -275,6 +275,8 @@ async def generate_sample_posts(
                 publish_attempts=item.publish_attempts,
                 last_publish_error=item.last_publish_error,
                 last_publish_at=item.last_publish_at,
+                require_media=getattr(item, "require_media", True),
+                primary_asset_type=getattr(item, "primary_asset_type", "image"),
             )
         )
 
@@ -327,6 +329,8 @@ async def list_content(
             publish_attempts=it.publish_attempts,
             last_publish_error=it.last_publish_error,
             last_publish_at=it.last_publish_at,
+            require_media=getattr(it, "require_media", True),
+            primary_asset_type=getattr(it, "primary_asset_type", "image"),
         )
         for it in items
     ]

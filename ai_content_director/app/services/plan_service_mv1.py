@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.logging_config import get_logger
-from app.models import GeneratedPlan, Tenant
+from app.models import ContentItem, ContentPlan, GeneratedPlan, Tenant
 from app.schemas.revenue_mv1 import PlanJsonSchema, PlanDayItem
 
 from app.services.ai_usage_service import log_usage
@@ -149,6 +149,85 @@ async def generate_plan(
 
 
 async def get_plan_by_id(db: AsyncSession, plan_id: UUID) -> GeneratedPlan | None:
-    """Get generated plan by id."""
+    """Get generated plan by id (from generated_plans)."""
     result = await db.execute(select(GeneratedPlan).where(GeneratedPlan.id == plan_id))
     return result.scalar_one_or_none()
+
+
+async def get_plan_by_id_and_tenant(
+    db: AsyncSession, plan_id: UUID, tenant_id: UUID
+) -> GeneratedPlan | None:
+    """Get generated plan by id and tenant_id from generated_plans (canonical for /generate output)."""
+    result = await db.execute(
+        select(GeneratedPlan).where(
+            GeneratedPlan.id == plan_id,
+            GeneratedPlan.tenant_id == tenant_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def materialize_plan(
+    db: AsyncSession,
+    plan_id: UUID,
+    tenant_id: UUID,
+) -> dict:
+    """
+    Load GeneratedPlan by id+tenant_id from generated_plans. Create content_plans (one per day)
+    and content_items (one per day) from plan_json.days. Return summary JSON.
+    """
+    plan = await get_plan_by_id_and_tenant(db, plan_id, tenant_id)
+    if not plan:
+        raise ValueError("plan_not_found")
+
+    days = (plan.plan_json or {}).get("days") or []
+    if not days:
+        return {
+            "plan_id": str(plan_id),
+            "content_plans_created": 0,
+            "content_items_created": 0,
+        }
+
+    content_plans_created = 0
+    content_items_created = 0
+
+    for day_item in days:
+        day = day_item.get("day", 0)
+        topic = (day_item.get("topic") or "").strip() or f"Day {day}"
+        content_angle = (day_item.get("content_angle") or "").strip() or ""
+
+        cp = ContentPlan(
+            tenant_id=tenant_id,
+            day_number=day,
+            topic=topic,
+            content_angle=content_angle or None,
+            status="planned",
+        )
+        db.add(cp)
+        await db.flush()
+        content_plans_created += 1
+
+        ci = ContentItem(
+            tenant_id=tenant_id,
+            plan_id=cp.id,
+            title=topic,
+            caption=content_angle or None,
+            hashtags=None,
+            status="draft",
+        )
+        db.add(ci)
+        await db.flush()
+        content_items_created += 1
+
+    logger.info(
+        "plan_mv1.materialized",
+        plan_id=str(plan_id),
+        tenant_id=str(tenant_id),
+        content_plans_created=content_plans_created,
+        content_items_created=content_items_created,
+    )
+    return {
+        "plan_id": str(plan_id),
+        "content_plans_created": content_plans_created,
+        "content_items_created": content_items_created,
+    }

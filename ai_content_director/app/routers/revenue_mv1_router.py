@@ -12,6 +12,8 @@ from app.schemas.revenue_mv1 import (
     IndustryProfileOut,
     PlanGenerateRequest,
     PlanGenerateResponse,
+    PlanMaterializeRequest,
+    PlanMaterializeResponse,
     PlanOut,
 )
 from app.services.tenant_service_mv1 import create_tenant
@@ -19,7 +21,7 @@ from app.services.onboarding_industry_service import (
     upsert_industry_profile,
     get_industry_profile_by_tenant,
 )
-from app.services.plan_service_mv1 import generate_plan, get_plan_by_id
+from app.services.plan_service_mv1 import generate_plan, get_plan_by_id, materialize_plan
 
 router = APIRouter(prefix="/api", tags=["revenue_mv1"])
 
@@ -105,7 +107,7 @@ async def get_plan(
     plan_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> PlanOut:
-    """Get generated plan by id."""
+    """Get generated plan by id (from generated_plans)."""
     plan = await get_plan_by_id(db, plan_id)
     if not plan:
         raise HTTPException(
@@ -113,3 +115,28 @@ async def get_plan(
             detail="Plan not found",
         )
     return PlanOut.model_validate(plan)
+
+
+@router.post(
+    "/plans/{plan_id}/materialize",
+    response_model=PlanMaterializeResponse,
+)
+async def post_plan_materialize(
+    plan_id: UUID,
+    payload: PlanMaterializeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PlanMaterializeResponse:
+    """
+    Materialize a generated plan: load by plan_id+tenant_id from generated_plans,
+    create content_plans and content_items from plan_json.days. Returns summary.
+    """
+    try:
+        summary = await materialize_plan(db, plan_id=plan_id, tenant_id=payload.tenant_id)
+        return PlanMaterializeResponse(**summary)
+    except ValueError as e:
+        if str(e) == "plan_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Plan not found",
+            ) from e
+        raise

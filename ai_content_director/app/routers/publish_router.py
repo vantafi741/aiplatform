@@ -32,6 +32,7 @@ async def post_publish_facebook(
             tenant_id=payload.tenant_id,
             content_id=payload.content_id,
             actor="HUMAN",
+            use_latest_asset=payload.use_latest_asset,
         )
     except ValueError as e:
         if str(e) == "facebook_not_configured":
@@ -47,6 +48,11 @@ async def post_publish_facebook(
                 detail="Chỉ được đăng nội dung đã approved.",
             )
         raise
+    if error_message == "media_required":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "media_required", "message": "Content yêu cầu ít nhất 1 ảnh/video (ready/cached). Gắn asset hoặc dùng use_latest_asset=true."},
+        )
     return PublishFacebookResponse(
         tenant_id=payload.tenant_id,
         content_id=payload.content_id,

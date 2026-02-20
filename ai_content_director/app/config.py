@@ -45,6 +45,24 @@ class Settings(BaseSettings):
     facebook_api_version: str = Field(default="v20.0", alias="FACEBOOK_API_VERSION")
     redis_url: Optional[str] = Field(default=None, alias="REDIS_URL")
 
+    # Google Drive dropzone (Service Account JSON path)
+    gdrive_sa_json_path: Optional[str] = Field(default=None, alias="GDRIVE_SA_JSON_PATH")
+    gdrive_ready_images_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_READY_IMAGES_FOLDER_ID")
+    gdrive_ready_videos_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_READY_VIDEOS_FOLDER_ID")
+    gdrive_processed_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_PROCESSED_FOLDER_ID")
+    gdrive_rejected_folder_id: Optional[str] = Field(default=None, alias="GDRIVE_REJECTED_FOLDER_ID")
+    local_media_dir: str = Field(default="/opt/aiplatform/media_cache", alias="LOCAL_MEDIA_DIR")
+    asset_max_image_mb: int = Field(default=10, alias="ASSET_MAX_IMAGE_MB")
+    asset_max_video_mb: int = Field(default=200, alias="ASSET_MAX_VIDEO_MB")
+
+    # AI Lead System: n8n webhook khi priority=high (follow-up task)
+    webhook_n8n_url: Optional[str] = Field(default=None, alias="WEBHOOK_URL")
+    # Intent classify: true = gọi LLM khi rule không match (unknown); false = chỉ rule
+    lead_classify_use_llm: bool = Field(default=False, alias="LEAD_CLASSIFY_USE_LLM")
+    # Timeouts (seconds) for AI Lead System
+    lead_classify_llm_timeout_seconds: int = Field(default=6, alias="LEAD_CLASSIFY_LLM_TIMEOUT_SECONDS")
+    n8n_webhook_timeout_seconds: float = Field(default=5.0, alias="N8N_WEBHOOK_TIMEOUT_SECONDS")
+
 
 @lru_cache
 def get_settings() -> Settings:
