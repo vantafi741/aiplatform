@@ -65,7 +65,41 @@ Sau khi chạy `scripts/verify_vps_lead_gdrive.sh`, paste kết quả **ports + 
 <summary>Paste output: docker compose ps + ss -lntp + ufw status</summary>
 
 ```
-# Paste /tmp/verify_ports_ufw.txt (hoặc output tương đương)
+===== /tmp/verify_ports_ufw.txt =====
+=== docker compose ps ===
+NAME                      IMAGE                COMMAND                  SERVICE    CREATED          STATUS                            PORTS
+ai-content-director-api   aiplatform-api       "uvicorn app.main:ap…"   api        10 seconds ago   Up 8 seconds (health: starting)   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
+ai-ecosystem-postgres     postgres:16-alpine   "docker-entrypoint.s…"   postgres   22 seconds ago   Up 20 seconds (healthy)           127.0.0.1:5432->5432/tcp
+ai-ecosystem-redis        redis:7-alpine       "docker-entrypoint.s…"   redis      22 seconds ago   Up 20 seconds (healthy)           127.0.0.1:6379->6379/tcp
+
+=== ss -lntp | egrep ':(8000|5432|6379)' ===
+LISTEN 0      4096         0.0.0.0:8000      0.0.0.0:*    users:(("docker-proxy",pid=2455818,fd=8))
+LISTEN 0      4096       127.0.0.1:5432      0.0.0.0:*    users:(("docker-proxy",pid=2455482,fd=8))
+LISTEN 0      4096       127.0.0.1:6379      0.0.0.0:*    users:(("docker-proxy",pid=2455503,fd=8))
+LISTEN 0      4096            [::]:8000         [::]:*    users:(("docker-proxy",pid=2455824,fd=8))
+
+=== ufw status verbose ===
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), deny (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+5432/tcp                   DENY IN     Anywhere
+6379/tcp                   DENY IN     Anywhere
+22/tcp (OpenSSH)           ALLOW IN    Anywhere
+80                         ALLOW IN    Anywhere
+443                        ALLOW IN    Anywhere
+8000/tcp                   ALLOW IN    Anywhere
+5678/tcp                   ALLOW IN    Anywhere
+5432/tcp (v6)              DENY IN     Anywhere (v6)
+6379/tcp (v6)              DENY IN     Anywhere (v6)
+22/tcp (OpenSSH (v6))      ALLOW IN    Anywhere (v6)
+80 (v6)                    ALLOW IN    Anywhere (v6)
+443 (v6)                   ALLOW IN    Anywhere (v6)
+8000/tcp (v6)              ALLOW IN    Anywhere (v6)
+5678/tcp (v6)              ALLOW IN    Anywhere (v6)
 ```
 
 </details>

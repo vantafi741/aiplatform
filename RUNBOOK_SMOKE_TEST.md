@@ -65,7 +65,33 @@ Paste nội dung **/tmp/smoke_e2e_output.txt** vào đây (bằng chứng smoke 
 <summary>Click để mở: paste /tmp/smoke_e2e_output.txt vào đây</summary>
 
 ```
-# Paste output của: cat /tmp/smoke_e2e_output.txt
+===== /tmp/smoke_e2e_output.txt =====
+=== Smoke E2E (scheduler + publish pipeline) ===
+BASE_URL=http://127.0.0.1:8000  TENANT_NAME=SmokeE2E  INDUSTRY=Tech
+
+[1/10] GET /health
+  OK
+[2/10] POST /api/tenants
+  tenant_id=c02f66b8-a788-45d9-af04-f5e53dd35622
+[3/10] POST /api/onboarding
+  OK
+[4/10] POST /api/plans/generate
+  plan_id=e09862c5-c88c-467e-ac3d-665f4f86aa9c
+[5/10] POST /api/plans/e09862c5-c88c-467e-ac3d-665f4f86aa9c/materialize
+  {"plan_id":"e09862c5-c88c-467e-ac3d-665f4f86aa9c","content_plans_created":30,"content_items_created":30}
+[6/10] GET /content/list?tenant_id=c02f66b8-a788-45d9-af04-f5e53dd35622
+  content_id=58f6f0b3-16b5-412d-8437-762516aff955
+[7/10] POST /content/58f6f0b3-16b5-412d-8437-762516aff955/approve
+  OK
+[8/10] POST /content/58f6f0b3-16b5-412d-8437-762516aff955/schedule (scheduled_at=2026-02-20T07:43:57Z)
+  {"content_id":"58f6f0b3-16b5-412d-8437-762516aff955","schedule_status":"scheduled","scheduled_at":"2026-02-20T07:43:57Z"}
+[9/10] Waiting 90s for scheduler tick...
+[10/10] GET /publish/logs and /audit/events
+--- /publish/logs?tenant_id=c02f66b8-a788-45d9-af04-f5e53dd35622&limit=10 ---
+{"tenant_id":"c02f66b8-a788-45d9-af04-f5e53dd35622","logs":[{"id":"71457a30-702d-4b13-9f7b-bb5adc2478ca","content_id":"58f6f0b3-16b5-412d-8437-762516aff955","platform":"facebook","post_id":null,"status":"fail","error_message":"media_required","published_at":null,"created_at":"2026-02-20T07:44:25.746026Z"}]}
+--- /audit/events?tenant_id=c02f66b8-a788-45d9-af04-f5e53dd35622&limit=20 ---
+{"tenant_id":"c02f66b8-a788-45d9-af04-f5e53dd35622","events":[{"id":"3f53a2d8-9f1e-48ab-a0b7-64c1935d9928","tenant_id":"c02f66b8-a788-45d9-af04-f5e53dd35622","content_id":"58f6f0b3-16b5-412d-8437-762516aff955","event_type":"PUBLISH_REQUESTED","actor":"SYSTEM","metadata":{"platform":"facebook"},"created_at":"2026-02-20T07:44:25.746026Z"},{"id":"4f90802f-d28c-427a-83b2-0592fcc7f076","tenant_id":"c02f66b8-a788-45d9-af04-f5e53dd35622","content_id":"58f6f0b3-16b5-412d-8437-762516aff955","event_type":"PUBLISH_FAIL","actor":"SYSTEM","metadata":{"error":"media_required","platform":"facebook"},"created_at":"2026-02-20T07:44:25.746026Z"},{"id":"50137248-4470-4904-a75a-00eace1e2554","tenant_id":"c02f66b8-a788-45d9-af04-f5e53dd35622","content_id":"58f6f0b3-16b5-412d-8437-762516aff955","event_type":"SCHEDULE_SET","actor":"HUMAN","metadata":{"scheduled_at":"2026-02-20T07:43:57+00:00"},"created_at":"2026-02-20T07:42:57.565685Z"},{"id":"bc0dd804-0a06-4889-bbd5-8fbaef0c72e8","tenant_id":"c02f66b8-a788-45d9-af04-f5e53dd35622","content_id":"58f6f0b3-16b5-412d-8437-762516aff955","event_type":"APPROVED","actor":"HUMAN","metadata":{"approved_at":"2026-02-20T07:42:57.445233+00:00"},"created_at":"2026-02-20T07:42:57.440788Z"}]}
+=== Smoke E2E done ===
 ```
 
 </details>
@@ -93,7 +119,11 @@ Paste **mẫu** từ `/tmp/publish_trace.txt` (chứng minh `scheduler.tick`, `s
 <summary>Click để mở: paste trích đoạn /tmp/publish_trace.txt</summary>
 
 ```
-# Paste trích đoạn: docker logs --tail=800 ai-content-director-api 2>&1 | grep -E "scheduler\.tick|scheduler\.publish_result|facebook_publish\.(calling|success|fail)" | tail -n 200
+===== /tmp/publish_trace.txt =====
+2026-02-20T07:42:25.708314Z [info     ] scheduler.tick                 eligible_count=0
+2026-02-20T07:43:25.717999Z [info     ] scheduler.tick                 eligible_count=0
+2026-02-20T07:44:25.730539Z [info     ] scheduler.tick                 eligible_count=1
+2026-02-20T07:44:25.815200Z [info     ] scheduler.publish_result       attempt=1 content_id=58f6f0b3-16b5-412d-8437-762516aff955 correlation_id=d50b242b-5e6c-4b81-ba9a-6374d6083d32 endpoint=facebook_publish_post error_message=media_required next_at=2026-02-20T07:54:25.804667+00:00 status=retry_scheduled
 ```
 
 </details>
