@@ -8,13 +8,14 @@
 
 ## 1. Danh sách commits + files + diffstat
 
-### Commits (3)
+### Commits (4)
 
 | # | Commit hash | Message |
 |---|-------------|---------|
 | 1 | `8c56a20` | feat(db): add lead_signals migration 012 |
 | 2 | `b9c96a3` | feat(db): add content_assets + require_media migration 013 |
 | 3 | `7973fe0` | feat(api): add facebook webhook + leads API + gdrive ingest/assets + docs/tests |
+| 4 | `5ec9073` | docs: add DEPLOY_TO_VPS checklist for feature branch |
 
 ### Files theo commit
 

@@ -168,6 +168,8 @@ async def publish_post(
 
     if asset:
         if asset.asset_type == "video":
+            endpoint = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/videos"
+            logger.info("facebook_publish.calling", endpoint=endpoint, content_id=str(content_id))
             # Upload video: POST /{page_id}/videos, description=message
             post_id, last_error, http_status = await _publish_video(
                 settings.facebook_page_id,
@@ -177,6 +179,8 @@ async def publish_post(
                 message,
             )
         else:
+            endpoint = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/photos"
+            logger.info("facebook_publish.calling", endpoint=endpoint, content_id=str(content_id))
             # Upload ảnh: POST /{page_id}/photos published=false, rồi POST feed với attached_media
             post_id, last_error, http_status = await _publish_photo(
                 settings.facebook_page_id,
@@ -202,6 +206,7 @@ async def publish_post(
     else:
         # Text-only feed (require_media=False)
         url = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/feed"
+        logger.info("facebook_publish.calling", endpoint=url, content_id=str(content_id))
         payload = {
             "message": message,
             "access_token": settings.facebook_access_token,
@@ -247,7 +252,12 @@ async def publish_post(
                 "error": last_error,
             },
         )
-        logger.warning("facebook_publish.fail", content_id=str(content_id), error=last_error)
+        logger.warning(
+            "facebook_publish.fail",
+            content_id=str(content_id),
+            status="fail",
+            error_message=last_error,
+        )
         return log, last_error
 
     now = datetime.now(timezone.utc)
@@ -265,7 +275,13 @@ async def publish_post(
         actor=actor,
         metadata_={"platform": PLATFORM_FACEBOOK, "post_id": post_id, "http_status": http_status or 200},
     )
-    logger.info("facebook_publish.success", content_id=str(content_id), post_id=post_id)
+    logger.info(
+        "facebook_publish.success",
+        content_id=str(content_id),
+        post_id=post_id,
+        status="success",
+        error_message=None,
+    )
     return log, None
 
 
