@@ -76,3 +76,8 @@ Khi `/publish/facebook` trả OAuthException `code=10`, `subcode=2069007`, làm 
    ```bash
    docker exec -it ai-content-director-api sh -lc "bash /app/scripts/facebook_debug.sh"
    ```
+
+Lệnh verify nhanh (kiểm tra file có trong image):
+```bash
+docker exec -it ai-content-director-api sh -lc "ls -lah /app/scripts && bash /app/scripts/facebook_debug.sh"
+```
