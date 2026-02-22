@@ -1,79 +1,83 @@
 # One-Command Deploy (VPS)
 
-Muc tieu: deploy cap nhat he thong bang **1 lenh duy nhat**.
+Muc tieu: cap nhat he thong len VPS bang 1 lenh duy nhat, de team non-IT cung co the van hanh.
 
-## 3 buoc cho non-IT
+## 3 buoc duy nhat
 
-1) SSH vao VPS
+### B1) SSH vao VPS
 ```bash
 ssh <user>@<vps_ip>
 ```
 
-2) Vao thu muc deploy
+### B2) Vao thu muc du an
 ```bash
 cd /opt/aiplatform
 ```
 
-3) Chay deploy
+### B3) Chay deploy
 ```bash
 ./deploy.sh
 ```
 
-Neu thanh cong, script se in:
+Neu thanh cong, script in:
 - `✅ DEPLOY SUCCESS`
 - `✅ SMOKE TEST SUCCESS`
 
-Neu fail, script se tra ve exit code != 0 de biet deploy that bai.
+Neu that bai, script se exit code khac 0.
 
-## Script deploy lam gi?
+## Deploy script tu dong lam gi?
 
-- Kiem tra repo co "dirty" khong (neu co thi dung de tranh mat code local).
-- `git fetch` + `git pull --ff-only`.
-- `docker compose build`.
-- `docker compose up -d --remove-orphans`.
-- Cho endpoint `/api/healthz` san sang (toi da 60 giay).
-- Chay `scripts/smoke_test.sh`.
+1. Kiem tra repo co file chua commit khong (dirty -> dung de an toan).
+2. `git fetch --all --prune` + `git pull --ff-only`.
+3. `docker compose build` (bo qua neu `DEPLOY_NO_BUILD=1`).
+4. `docker compose up -d --remove-orphans`.
+5. Poll `GET /api/healthz` toi da 60 giay (co the config ENV).
+6. Chay `scripts/smoke_test.sh`.
 
-## Smoke test kiem tra gi?
+## ENV tuy chon cho deploy/smoke
 
-- `GET /api/healthz` (bat buoc)
-- `GET /api/readyz` (neu 404 thi bo qua, neu loi khac thi fail)
-- OpenAPI (`/openapi.json` hoac `/api/openapi.json`)
-- Option: test them staging port `8001` neu bat ENV.
-
-## Bien moi truong tuy chon
-
-- `API_BASE_URL` (mac dinh: `http://localhost:8000`)
-- `DEPLOY_HEALTH_TIMEOUT_SECONDS` (mac dinh: `60`)
-- `SMOKE_TEST_STAGING_8001=1` de bat test cong 8001
-- `STAGING_API_BASE_URL` (mac dinh: `http://localhost:8001`)
-
-## Troubleshoot nhanh
-
-- Xem container:
 ```bash
-docker compose ps
+# Mac dinh la localhost:8000
+API_BASE_URL=http://localhost:8000
+
+# Timeout cho health check (giay)
+DEPLOY_HEALTH_TIMEOUT_SECONDS=60
+
+# Bo qua build image neu can deploy nhanh
+DEPLOY_NO_BUILD=1
+
+# Bat them smoke test cong staging 8001
+SMOKE_TEST_STAGING_8001=1
+STAGING_API_BASE_URL=http://localhost:8001
 ```
 
-- Xem log API:
-```bash
-docker compose logs --tail=200 api
-```
-
-- Kiem tra health thu cong:
-```bash
-curl -i http://localhost:8000/api/healthz
-curl -i http://localhost:8000/api/readyz
-```
-
-- Chay smoke test rieng:
-```bash
-bash ./scripts/smoke_test.sh
-```
-
-## Chay local
+## Chay local (copy/paste)
 
 ```bash
 docker compose up -d --build
 bash ./scripts/smoke_test.sh
 ```
+
+## Troubleshoot nhanh (copy/paste)
+
+### Kiem tra container
+```bash
+docker compose ps
+```
+
+### Xem log API 200 dong gan nhat
+```bash
+docker compose logs --tail=200 api
+```
+
+### Kiem tra health/readiness thu cong
+```bash
+curl -i http://localhost:8000/api/healthz
+curl -i http://localhost:8000/api/readyz
+```
+
+### Chay smoke test rieng
+```bash
+bash ./scripts/smoke_test.sh
+```
+

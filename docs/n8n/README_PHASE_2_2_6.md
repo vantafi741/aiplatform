@@ -11,6 +11,29 @@ Mục tiêu: tự động chạy luồng:
    - `POST /publish/facebook`
    - chỉ mark processed khi publish thành công
 
+## Mode khuyen nghi (fix n8n env denied)
+
+Neu n8n bi loi "access to env vars denied", dung mode trigger HTTP:
+
+1. n8n chi goi:
+   `POST /api/pipelines/drive_to_facebook/run`
+2. FastAPI se tu scan Drive READY, ingest, tao content, publish Facebook, move file.
+3. Body request:
+   ```json
+   { "tenant_id": "<uuid>" }
+   ```
+4. Response:
+   ```json
+   { "ok": true, "processed": 2, "skipped": 1, "errors": [] }
+   ```
+
+Curl test nhanh:
+```bash
+curl -X POST http://localhost:8000/api/pipelines/drive_to_facebook/run \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"<tenant_uuid>"}'
+```
+
 ## File workflow
 
 - `docs/n8n/workflows/phase_2_2_6_drive_to_facebook.json`

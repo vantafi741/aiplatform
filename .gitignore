@@ -1,10 +1,16 @@
-__pycache__/ 
-*.py[cod] 
-venv/ 
-env/ 
+__pycache__/
+*.py[cod]
+venv/
+env/
 .env
 .env.*
 !.env.example
-node_modules/ 
-.next/ 
-dist/ 
+node_modules/
+.next/
+dist/
+
+# Audit report (reproducible: run scripts/audit_status.sh on VPS)
+REPORT_STATUS_VPS.md
+# Runtime / sensitive dirs (do not commit)
+data/
+secrets/ 

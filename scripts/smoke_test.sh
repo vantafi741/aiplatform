@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
 # ==============================================================
 # Smoke test nhanh sau deploy
 # - Bat buoc: /api/healthz
 # - Neu co: /api/readyz
 # - OpenAPI: /openapi.json hoac /api/openapi.json
+# - Optional docs: /docs (200/302 la OK)
 # ==============================================================
 
 readonly COLOR_RED="\033[0;31m"
@@ -13,6 +15,12 @@ readonly COLOR_GREEN="\033[0;32m"
 readonly COLOR_YELLOW="\033[1;33m"
 readonly COLOR_BLUE="\033[0;34m"
 readonly COLOR_RESET="\033[0m"
+
+TMP_FILE="$(mktemp)"
+cleanup() {
+  rm -f "${TMP_FILE}"
+}
+trap cleanup EXIT
 
 log_info() {
   echo -e "${COLOR_BLUE}[INFO]${COLOR_RESET} $*"
@@ -30,22 +38,32 @@ log_fail() {
   echo -e "${COLOR_RED}[FAIL]${COLOR_RESET} $*"
 }
 
+http_code() {
+  local url="$1"
+  curl -sS -o "${TMP_FILE}" -w "%{http_code}" "${url}" || true
+}
+
+print_body_snippet() {
+  if [[ -s "${TMP_FILE}" ]]; then
+    echo "----- response body -----"
+    sed -n '1,20p' "${TMP_FILE}"
+    echo "-------------------------"
+  fi
+}
+
 http_check_required() {
   local url="$1"
   local name="$2"
   local code
-  code="$(curl -sS -o /tmp/smoke_response_body.txt -w "%{http_code}" "${url}" || true)"
+  code="$(http_code "${url}")"
+
   if [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
     log_ok "${name} OK (${code}) -> ${url}"
     return 0
   fi
 
   log_fail "${name} FAIL (${code}) -> ${url}"
-  if [[ -s /tmp/smoke_response_body.txt ]]; then
-    echo "----- response body (${name}) -----"
-    sed -n '1,20p' /tmp/smoke_response_body.txt
-    echo "-----------------------------------"
-  fi
+  print_body_snippet
   return 1
 }
 
@@ -53,7 +71,8 @@ http_check_optional() {
   local url="$1"
   local name="$2"
   local code
-  code="$(curl -sS -o /tmp/smoke_response_body.txt -w "%{http_code}" "${url}" || true)"
+  code="$(http_code "${url}")"
+
   if [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
     log_ok "${name} OK (${code}) -> ${url}"
     return 0
@@ -65,25 +84,34 @@ http_check_optional() {
   fi
 
   log_fail "${name} FAIL (${code}) -> ${url}"
-  if [[ -s /tmp/smoke_response_body.txt ]]; then
-    echo "----- response body (${name}) -----"
-    sed -n '1,20p' /tmp/smoke_response_body.txt
-    echo "-----------------------------------"
-  fi
+  print_body_snippet
   return 1
 }
 
-check_openapi() {
+check_openapi_or_docs() {
   local base_url="$1"
-  if curl -fsS "${base_url}/openapi.json" >/dev/null 2>&1; then
-    log_ok "OpenAPI OK -> ${base_url}/openapi.json"
+  local code=""
+
+  code="$(http_code "${base_url}/openapi.json")"
+  if [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
+    log_ok "OpenAPI OK (${code}) -> ${base_url}/openapi.json"
     return 0
   fi
-  if curl -fsS "${base_url}/api/openapi.json" >/dev/null 2>&1; then
-    log_ok "OpenAPI OK -> ${base_url}/api/openapi.json"
+
+  code="$(http_code "${base_url}/api/openapi.json")"
+  if [[ "${code}" =~ ^2[0-9]{2}$ ]]; then
+    log_ok "OpenAPI OK (${code}) -> ${base_url}/api/openapi.json"
     return 0
   fi
-  log_fail "Khong tim thay OpenAPI endpoint hop le."
+
+  code="$(http_code "${base_url}/docs")"
+  if [[ "${code}" =~ ^(200|302)$ ]]; then
+    log_ok "Docs endpoint OK (${code}) -> ${base_url}/docs"
+    return 0
+  fi
+
+  log_fail "Khong tim thay OpenAPI/docs endpoint hop le."
+  print_body_snippet
   return 1
 }
 
@@ -92,7 +120,7 @@ run_base_checks() {
   log_info "Smoke test tren base URL: ${base_url}"
   http_check_required "${base_url}/api/healthz" "healthz"
   http_check_optional "${base_url}/api/readyz" "readyz"
-  check_openapi "${base_url}"
+  check_openapi_or_docs "${base_url}"
 }
 
 main() {
