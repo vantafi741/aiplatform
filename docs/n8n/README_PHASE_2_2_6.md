@@ -61,3 +61,23 @@ Mục tiêu: tự động chạy luồng:
 - Nếu workflow báo thiếu tenant:
   - kiểm tra `TENANT_ID` trong env n8n.
   - kiểm tra tenant tồn tại trong DB.
+
+## Facebook Permission Checklist
+
+Khi `/publish/facebook` trả OAuthException `code=10`, `subcode=2069007`, làm theo thứ tự:
+
+1. Trong Meta App, bật **Facebook Login** product.
+2. Đảm bảo app/token có các quyền:  
+   `pages_manage_posts`, `pages_read_engagement`, `pages_show_list`.
+3. Generate **user token** có đủ scopes, sau đó đổi sang **page token** qua `/{user-id}/accounts` (hoặc `/me/accounts`).
+4. Kiểm tra user có **Page task CREATE_CONTENT** trên đúng Facebook Page.
+5. Cập nhật token vào `.env` (`FB_PAGE_ACCESS_TOKEN` hoặc `FACEBOOK_ACCESS_TOKEN`), restart service.
+6. Chạy script chẩn đoán:
+   ```bash
+   docker exec -it ai-content-director-api sh -lc "bash /app/scripts/facebook_debug.sh"
+   ```
+
+Lệnh verify nhanh (kiểm tra file có trong image):
+```bash
+docker exec -it ai-content-director-api sh -lc "ls -lah /app/scripts && bash /app/scripts/facebook_debug.sh"
+```
