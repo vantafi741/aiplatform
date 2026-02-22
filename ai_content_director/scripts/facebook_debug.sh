@@ -3,120 +3,122 @@ set -euo pipefail
 IFS=$'\n\t'
 
 GRAPH_BASE="https://graph.facebook.com/v19.0"
-TOKEN="${FB_PAGE_ACCESS_TOKEN:-${FACEBOOK_ACCESS_TOKEN:-}}"
 PAGE_ID="${FACEBOOK_PAGE_ID:-}"
-APP_ID="${APP_ID:-}"
-APP_SECRET="${APP_SECRET:-}"
+TOKEN="${FB_PAGE_ACCESS_TOKEN:-${FACEBOOK_ACCESS_TOKEN:-}}"
+APP_ID="${FACEBOOK_APP_ID:-${APP_ID:-}}"
+APP_SECRET="${FACEBOOK_APP_SECRET:-${APP_SECRET:-}}"
+DRY_RUN="${DRY_RUN:-1}"
 
-if [[ -z "${TOKEN}" ]]; then
-  echo "[FAIL] Missing token. Set FB_PAGE_ACCESS_TOKEN or FACEBOOK_ACCESS_TOKEN."
+if [[ -z "${PAGE_ID}" ]]; then
+  echo "[FAIL] Missing env FACEBOOK_PAGE_ID."
   exit 1
 fi
-if [[ -z "${PAGE_ID}" ]]; then
-  echo "[FAIL] Missing FACEBOOK_PAGE_ID."
+if [[ -z "${TOKEN}" ]]; then
+  echo "[FAIL] Missing token env FB_PAGE_ACCESS_TOKEN or FACEBOOK_ACCESS_TOKEN."
   exit 1
 fi
 
 token_len=${#TOKEN}
-token_prefix="${TOKEN:0:12}"
+if (( token_len >= 12 )); then
+  token_prefix="${TOKEN:0:12}"
+else
+  token_prefix="${TOKEN}"
+fi
 
 echo "== Facebook Debug =="
 echo "PAGE_ID: ${PAGE_ID}"
-echo "token_len: ${token_len}"
-echo "token_prefix: ${token_prefix}..."
+echo "TOKEN_LEN: ${token_len}"
+echo "TOKEN_PREFIX: ${token_prefix}..."
+echo "DRY_RUN: ${DRY_RUN}"
 echo
 
-call_graph() {
-  local url="$1"
+graph_get() {
+  local endpoint="$1"
   shift
-  curl -sS --get "${url}" "$@" --data-urlencode "access_token=${TOKEN}"
+  curl -sS --get "${GRAPH_BASE}/${endpoint}" "$@" --data-urlencode "access_token=${TOKEN}"
 }
 
-extract_json_value() {
+graph_post() {
+  local endpoint="$1"
+  shift
+  curl -sS -X POST "${GRAPH_BASE}/${endpoint}" "$@" --data-urlencode "access_token=${TOKEN}"
+}
+
+json_has_error() {
   local json_input="$1"
-  local py_expr="$2"
-  python -c "import json,sys; d=json.loads(sys.stdin.read()); print(${py_expr})" <<< "${json_input}" 2>/dev/null || true
+  python -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); print('1' if isinstance(d, dict) and isinstance(d.get('error'), dict) else '0')" <<< "${json_input}" 2>/dev/null || echo "0"
 }
 
-has_graph_error() {
+json_read() {
   local json_input="$1"
-  python -c "import json,sys; d=json.loads(sys.stdin.read()); print('1' if isinstance(d,dict) and 'error' in d else '0')" <<< "${json_input}" 2>/dev/null || echo "0"
+  local expr="$2"
+  python -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); v=(${expr}); print('' if v is None else v)" <<< "${json_input}" 2>/dev/null || true
 }
 
-print_graph_error() {
+print_error_hint() {
   local json_input="$1"
-  python -c "import json,sys; d=json.loads(sys.stdin.read()); e=d.get('error',{}); print(f\"code={e.get('code')} subcode={e.get('error_subcode')} type={e.get('type')} message={e.get('message')}\")" <<< "${json_input}" 2>/dev/null || true
+  local code
+  local subcode
+  local message
+  code="$(json_read "${json_input}" "d.get('error', {}).get('code')")"
+  subcode="$(json_read "${json_input}" "d.get('error', {}).get('error_subcode')")"
+  message="$(json_read "${json_input}" "d.get('error', {}).get('message')")"
+
+  echo "  ERROR: code=${code:-n/a} subcode=${subcode:-n/a} message=${message:-n/a}"
+  if [[ "${code}" == "10" && "${subcode}" == "2069007" ]]; then
+    echo "  HINT: Missing publish permission. Ensure pages_manage_posts/pages_read_engagement/pages_show_list,"
+    echo "        then generate USER token -> exchange PAGE token via /me/accounts and verify CREATE_CONTENT task."
+  fi
 }
 
-page_info="$(call_graph "${GRAPH_BASE}/${PAGE_ID}" --data-urlencode "fields=id,name")"
-page_tasks="$(call_graph "${GRAPH_BASE}/${PAGE_ID}" --data-urlencode "fields=tasks")"
-me_info="$(call_graph "${GRAPH_BASE}/me" --data-urlencode "fields=id,name")"
+print_check_result() {
+  local title="$1"
+  local resp="$2"
 
-echo "== Raw Checks =="
-echo "- GET /${PAGE_ID}?fields=id,name"
-if [[ "$(has_graph_error "${page_info}")" == "1" ]]; then
-  echo "  FAIL: $(print_graph_error "${page_info}")"
-else
-  echo "  OK: id=$(extract_json_value "${page_info}" "d.get('id')") name=$(extract_json_value "${page_info}" "d.get('name')")"
-fi
+  echo "- ${title}"
+  if [[ "$(json_has_error "${resp}")" == "1" ]]; then
+    print_error_hint "${resp}"
+  else
+    echo "  OK: ${resp}"
+  fi
+}
 
-echo "- GET /${PAGE_ID}?fields=tasks"
-if [[ "$(has_graph_error "${page_tasks}")" == "1" ]]; then
-  echo "  FAIL/UNSUPPORTED: $(print_graph_error "${page_tasks}")"
-else
-  echo "  OK: tasks=$(extract_json_value "${page_tasks}" "d.get('tasks')")"
-fi
+page_info="$(graph_get "${PAGE_ID}" --data-urlencode "fields=id,name")"
+me_info="$(graph_get "me" --data-urlencode "fields=id,name")"
 
-echo "- GET /me?fields=id,name"
-if [[ "$(has_graph_error "${me_info}")" == "1" ]]; then
-  echo "  FAIL: $(print_graph_error "${me_info}")"
+echo "== Graph Checks =="
+print_check_result "GET /${PAGE_ID}?fields=id,name" "${page_info}"
+print_check_result "GET /me?fields=id,name" "${me_info}"
+
+echo
+echo "== Publish Check =="
+if [[ "${DRY_RUN}" == "1" ]]; then
+  echo "DRY_RUN=1, skip POST /${PAGE_ID}/feed"
+  echo "Preview command:"
+  echo "curl -sS -X POST \"${GRAPH_BASE}/${PAGE_ID}/feed\" --data-urlencode \"message=Debug post from facebook_debug.sh\" --data-urlencode \"access_token=<REDACTED>\""
 else
-  echo "  OK: id=$(extract_json_value "${me_info}" "d.get('id')") name=$(extract_json_value "${me_info}" "d.get('name')")"
+  post_message="Debug post from facebook_debug.sh at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  feed_resp="$(graph_post "${PAGE_ID}/feed" --data-urlencode "message=${post_message}")"
+  print_check_result "POST /${PAGE_ID}/feed" "${feed_resp}"
 fi
 
 echo
-echo "== Token Type Heuristic =="
-me_id="$(extract_json_value "${me_info}" "d.get('id')")"
-if [[ -n "${me_id}" && "${me_id}" == "${PAGE_ID}" ]]; then
-  echo "Detected: looks like PAGE token (/me id == PAGE_ID)"
-elif [[ -n "${me_id}" ]]; then
-  echo "Detected: looks like USER token (/me id != PAGE_ID)"
-else
-  echo "Detected: unknown (cannot read /me)"
-fi
-
+echo "== debug_token (optional) =="
 if [[ -n "${APP_ID}" && -n "${APP_SECRET}" ]]; then
-  echo
-  echo "== /debug_token =="
   app_token="${APP_ID}|${APP_SECRET}"
   debug_resp="$(curl -sS --get "${GRAPH_BASE}/debug_token" --data-urlencode "input_token=${TOKEN}" --data-urlencode "access_token=${app_token}")"
-  if [[ "$(has_graph_error "${debug_resp}")" == "1" ]]; then
-    echo "debug_token FAIL: $(print_graph_error "${debug_resp}")"
+  if [[ "$(json_has_error "${debug_resp}")" == "1" ]]; then
+    print_error_hint "${debug_resp}"
   else
-    echo "issued_to: $(extract_json_value "${debug_resp}" "d.get('data',{}).get('application')")"
-    echo "type: $(extract_json_value "${debug_resp}" "d.get('data',{}).get('type')")"
-    echo "is_valid: $(extract_json_value "${debug_resp}" "d.get('data',{}).get('is_valid')")"
-    echo "expires_at: $(extract_json_value "${debug_resp}" "d.get('data',{}).get('expires_at')")"
-    echo "scopes: $(extract_json_value "${debug_resp}" "d.get('data',{}).get('scopes')")"
+    echo "type: $(json_read "${debug_resp}" "d.get('data', {}).get('type')")"
+    echo "is_valid: $(json_read "${debug_resp}" "d.get('data', {}).get('is_valid')")"
+    echo "expires_at: $(json_read "${debug_resp}" "d.get('data', {}).get('expires_at')")"
+    echo "scopes: $(json_read "${debug_resp}" "d.get('data', {}).get('scopes')")"
+    echo "application: $(json_read "${debug_resp}" "d.get('data', {}).get('application')")"
   fi
 else
-  echo
-  echo "== /debug_token =="
-  echo "Skip (set APP_ID and APP_SECRET to enable deep token debug)"
+  echo "Skip /debug_token (set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET)."
 fi
 
-echo
-echo "== Permission Diagnosis =="
-echo "Required perms for publish flow:"
-echo "- pages_manage_posts"
-echo "- pages_read_engagement"
-echo "- pages_show_list"
-echo
-echo "If publish fails with OAuthException code=10 subcode=2069007:"
-echo "1) Add Facebook Login product in Meta app."
-echo "2) Request/approve pages_manage_posts, pages_read_engagement, pages_show_list."
-echo "3) Generate USER token with those scopes, then exchange PAGE token via /me/accounts."
-echo "4) Ensure your Facebook user has Page task CREATE_CONTENT."
-echo "5) Put PAGE token into FB_PAGE_ACCESS_TOKEN (or FACEBOOK_ACCESS_TOKEN), restart API."
 echo
 echo "[DONE] facebook_debug completed."

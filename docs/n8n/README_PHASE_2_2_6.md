@@ -81,3 +81,8 @@ Lệnh verify nhanh (kiểm tra file có trong image):
 ```bash
 docker exec -it ai-content-director-api sh -lc "ls -lah /app/scripts && bash /app/scripts/facebook_debug.sh"
 ```
+
+Muốn test publish thật thì thêm `DRY_RUN=0`:
+```bash
+docker exec -it ai-content-director-api sh -lc "DRY_RUN=0 bash /app/scripts/facebook_debug.sh"
+```
