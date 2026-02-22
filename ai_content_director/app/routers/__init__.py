@@ -15,6 +15,7 @@ from app.routers.gdrive_assets_router import router as gdrive_assets_router
 from app.routers.facebook_webhook_router import router as facebook_webhook_router
 from app.routers.leads_router import router as leads_router
 from app.routers.media_router import router as media_router
+from app.routers.pipelines_router import router as pipelines_router
 
 __all__ = [
     "api_health_router",
@@ -33,4 +34,5 @@ __all__ = [
     "facebook_webhook_router",
     "leads_router",
     "media_router",
+    "pipelines_router",
 ]
