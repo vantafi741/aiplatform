@@ -1,5 +1,5 @@
 # Asset summaries + integrate into revenue_content_items
-# Revision ID: 015  Revises: 014
+# Revision ID: 015  Revises: 013
 
 from typing import Sequence, Union
 
@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision: str = "015"
-down_revision: Union[str, None] = "014"
+down_revision: Union[str, None] = "013"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
