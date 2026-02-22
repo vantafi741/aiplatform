@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.logging_config import get_logger
 from app.schemas.publish import (
     PublishFacebookRequest,
     PublishFacebookResponse,
@@ -14,6 +15,18 @@ from app.schemas.publish import (
 from app.services.facebook_publish_service import publish_post, list_publish_logs
 
 router = APIRouter(prefix="/publish", tags=["publish"])
+logger = get_logger(__name__)
+
+
+def _fb_permission_fix_hint() -> str:
+    """Meta fix steps cho lỗi permission denied code=10/subcode=2069007."""
+    return (
+        "1) Trong Meta App: add Facebook Login product. "
+        "2) Yêu cầu quyền pages_manage_posts, pages_read_engagement, pages_show_list. "
+        "3) Generate user token hợp lệ rồi đổi sang page token qua /me/accounts. "
+        "4) Đảm bảo user có Page task CREATE_CONTENT (hoặc quyền tương đương) trên Page. "
+        "5) Cập nhật token vào env (FB_PAGE_ACCESS_TOKEN hoặc FACEBOOK_ACCESS_TOKEN) và restart service."
+    )
 
 
 @router.post("/facebook", response_model=PublishFacebookResponse)
@@ -27,7 +40,7 @@ async def post_publish_facebook(
     Ghi publish_log và audit (PUBLISH_REQUESTED, PUBLISH_SUCCESS / PUBLISH_FAIL).
     """
     try:
-        log, error_message = await publish_post(
+        log, error_message, error_details = await publish_post(
             db,
             tenant_id=payload.tenant_id,
             content_id=payload.content_id,
@@ -52,6 +65,36 @@ async def post_publish_facebook(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": "media_required", "message": "Content yêu cầu ít nhất 1 ảnh/video (ready/cached). Gắn asset hoặc dùng use_latest_asset=true."},
+        )
+    if (
+        error_details
+        and error_details.get("code") == 10
+        and error_details.get("subcode") == 2069007
+    ):
+        try:
+            import structlog.contextvars
+
+            correlation_id = structlog.contextvars.get_contextvars().get("correlation_id")
+        except Exception:
+            correlation_id = None
+        logger.warning(
+            "facebook_publish.permission_denied",
+            tenant_id=str(payload.tenant_id),
+            content_id=str(payload.content_id),
+            details=error_details,
+            correlation_id=correlation_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "fb_permission_denied",
+                "details": {
+                    "code": error_details.get("code"),
+                    "subcode": error_details.get("subcode"),
+                    "message": error_details.get("message") or error_message,
+                },
+                "fix_hint": _fb_permission_fix_hint(),
+            },
         )
     return PublishFacebookResponse(
         tenant_id=payload.tenant_id,

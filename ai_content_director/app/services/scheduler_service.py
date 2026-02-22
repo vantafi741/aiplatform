@@ -111,7 +111,7 @@ async def _publish_one(content_id: UUID, tenant_id: UUID) -> None:
             if not item or item.schedule_status != "publishing":
                 return
             try:
-                log, error_message = await publish_post(
+                log, error_message, _error_details = await publish_post(
                     db,
                     tenant_id=tenant_id,
                     content_id=content_id,

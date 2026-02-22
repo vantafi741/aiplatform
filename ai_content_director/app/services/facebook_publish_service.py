@@ -7,7 +7,7 @@
 """
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from uuid import UUID
 
 import httpx
@@ -94,14 +94,14 @@ async def publish_post(
     content_id: UUID,
     actor: str = "HUMAN",
     use_latest_asset: bool = False,
-) -> Tuple[PublishLog, Optional[str]]:
+) -> Tuple[PublishLog, Optional[str], Optional[dict[str, Any]]]:
     """
     Đăng một content_item lên Facebook Page (chỉ khi status == "approved").
     - Nếu require_media: cần ít nhất 1 asset (ready/cached); không có -> ValueError("media_required").
     - Image: upload photos published=false -> media_fbid, rồi POST feed với attached_media.
     - Video: upload videos với description -> post_id.
     - Cập nhật content_assets (fb_media_fbid/fb_video_id, status=uploaded); move Drive file PROCESSED/REJECTED.
-    Trả về (publish_log, error_message). error_message chỉ có khi fail.
+    Trả về (publish_log, error_message, error_details). error_details dùng cho chẩn đoán Graph API.
     """
     settings = get_settings()
     if not settings.facebook_page_id or not settings.facebook_access_token:
@@ -159,10 +159,11 @@ async def publish_post(
                 metadata_={"platform": PLATFORM_FACEBOOK, "error": "media_required"},
             )
             logger.warning("facebook_publish.media_required", content_id=str(content_id))
-            return log, "media_required"
+            return log, "media_required", None
 
     # Đăng theo loại: có asset thì image/video; không thì feed thuần (text)
     last_error: Optional[str] = None
+    error_details: Optional[dict[str, Any]] = None
     http_status: Optional[int] = None
     post_id: Optional[str] = None
 
@@ -171,7 +172,7 @@ async def publish_post(
             endpoint = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/videos"
             logger.info("facebook_publish.calling", endpoint=endpoint, content_id=str(content_id))
             # Upload video: POST /{page_id}/videos, description=message
-            post_id, last_error, http_status = await _publish_video(
+            post_id, last_error, http_status, error_details = await _publish_video(
                 settings.facebook_page_id,
                 settings.facebook_access_token,
                 settings.facebook_api_version,
@@ -182,7 +183,7 @@ async def publish_post(
             endpoint = f"{GRAPH_BASE}/{settings.facebook_api_version}/{settings.facebook_page_id}/photos"
             logger.info("facebook_publish.calling", endpoint=endpoint, content_id=str(content_id))
             # Upload ảnh: POST /{page_id}/photos published=false, rồi POST feed với attached_media
-            post_id, last_error, http_status = await _publish_photo(
+            post_id, last_error, http_status, error_details = await _publish_photo(
                 settings.facebook_page_id,
                 settings.facebook_access_token,
                 settings.facebook_api_version,
@@ -222,7 +223,7 @@ async def publish_post(
                     break
                 try:
                     err_body = resp.json()
-                    last_error = err_body.get("error", {}).get("message", resp.text) or resp.text
+                    last_error, error_details = _extract_graph_error(err_body, fallback_text=resp.text)
                 except Exception:
                     last_error = resp.text or f"HTTP {resp.status_code}"
             except httpx.TimeoutException as e:
@@ -250,6 +251,7 @@ async def publish_post(
                 "platform": PLATFORM_FACEBOOK,
                 "http_status": http_status,
                 "error": last_error,
+                "error_details": error_details,
             },
         )
         logger.warning(
@@ -257,8 +259,9 @@ async def publish_post(
             content_id=str(content_id),
             status="fail",
             error_message=last_error,
+            error_details=error_details,
         )
-        return log, last_error
+        return log, last_error, error_details
 
     now = datetime.now(timezone.utc)
     log.status = "success"
@@ -282,7 +285,26 @@ async def publish_post(
         status="success",
         error_message=None,
     )
-    return log, None
+    return log, None, None
+
+
+def _extract_graph_error(
+    body: dict[str, Any],
+    fallback_text: str,
+) -> tuple[str, Optional[dict[str, Any]]]:
+    """Parse Graph API error object về (message, details)."""
+    error_obj = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error_obj, dict):
+        return fallback_text or "unknown_graph_error", None
+    details = {
+        "type": error_obj.get("type"),
+        "code": error_obj.get("code"),
+        "subcode": error_obj.get("error_subcode"),
+        "message": error_obj.get("message"),
+        "fbtrace_id": error_obj.get("fbtrace_id"),
+    }
+    msg = str(error_obj.get("message") or fallback_text or "unknown_graph_error")
+    return msg, details
 
 
 async def _publish_photo(
@@ -291,14 +313,14 @@ async def _publish_photo(
     api_version: str,
     asset: ContentAsset,
     message: str,
-) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+) -> Tuple[Optional[str], Optional[str], Optional[int], Optional[dict[str, Any]]]:
     """
     Upload ảnh lên page (published=false), lấy photo id, rồi tạo feed post với attached_media.
     Trả về (post_id, error, http_status).
     """
     local_path = asset.local_path
     if not local_path or not Path(local_path).is_file():
-        return None, "asset_local_file_missing", None
+        return None, "asset_local_file_missing", None, None
 
     url = f"{GRAPH_BASE}/{api_version}/{page_id}/photos"
     data = {"access_token": access_token, "published": "false"}
@@ -311,16 +333,17 @@ async def _publish_photo(
         if resp.status_code != 200:
             try:
                 err_body = resp.json()
-                err_msg = err_body.get("error", {}).get("message", resp.text) or resp.text
+                err_msg, err_details = _extract_graph_error(err_body, fallback_text=resp.text)
             except Exception:
                 err_msg = resp.text or f"HTTP {resp.status_code}"
-            return None, err_msg, resp.status_code
+                err_details = None
+            return None, err_msg, resp.status_code, err_details
         data_res = resp.json()
         photo_id = data_res.get("id") or data_res.get("post_id")
         if not photo_id and "id" in data_res:
             photo_id = str(data_res["id"])
         if not photo_id:
-            return None, "photo_upload_no_id", resp.status_code
+            return None, "photo_upload_no_id", resp.status_code, None
 
         # Tạo feed post với ảnh đính kèm
         feed_url = f"{GRAPH_BASE}/{api_version}/{page_id}/feed"
@@ -334,19 +357,20 @@ async def _publish_photo(
         if feed_resp.status_code != 200:
             try:
                 err_body = feed_resp.json()
-                err_msg = err_body.get("error", {}).get("message", feed_resp.text) or feed_resp.text
+                err_msg, err_details = _extract_graph_error(err_body, fallback_text=feed_resp.text)
             except Exception:
                 err_msg = feed_resp.text or f"HTTP {feed_resp.status_code}"
-            return None, err_msg, feed_resp.status_code
+                err_details = None
+            return None, err_msg, feed_resp.status_code, err_details
         feed_data = feed_resp.json()
         post_id = feed_data.get("id") or feed_data.get("post_id") or (str(feed_data["id"]) if "id" in feed_data else None)
-        return post_id, None, feed_resp.status_code
+        return post_id, None, feed_resp.status_code, None
     except httpx.TimeoutException as e:
-        return None, f"Timeout: {e}", None
+        return None, f"Timeout: {e}", None, None
     except httpx.RequestError as e:
-        return None, str(e), getattr(getattr(e, "response", None), "status_code", None)
+        return None, str(e), getattr(getattr(e, "response", None), "status_code", None), None
     except Exception as e:
-        return None, str(e), None
+        return None, str(e), None, None
 
 
 async def _publish_video(
@@ -355,14 +379,14 @@ async def _publish_video(
     api_version: str,
     asset: ContentAsset,
     message: str,
-) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+) -> Tuple[Optional[str], Optional[str], Optional[int], Optional[dict[str, Any]]]:
     """
     Upload video lên page với description=message. Graph trả về id (video/post).
     Trả về (post_id hoặc video_id, error, http_status).
     """
     local_path = asset.local_path
     if not local_path or not Path(local_path).is_file():
-        return None, "asset_local_file_missing", None
+        return None, "asset_local_file_missing", None, None
 
     url = f"{GRAPH_BASE}/{api_version}/{page_id}/videos"
     data = {
@@ -377,22 +401,23 @@ async def _publish_video(
         if resp.status_code != 200:
             try:
                 err_body = resp.json()
-                err_msg = err_body.get("error", {}).get("message", resp.text) or resp.text
+                err_msg, err_details = _extract_graph_error(err_body, fallback_text=resp.text)
             except Exception:
                 err_msg = resp.text or f"HTTP {resp.status_code}"
-            return None, err_msg, resp.status_code
+                err_details = None
+            return None, err_msg, resp.status_code, err_details
         data_res = resp.json()
         # Video upload có thể trả về "id" (video) và "post_id" (bài đăng trên page)
         post_id = data_res.get("post_id") or data_res.get("id")
         if not post_id and "id" in data_res:
             post_id = str(data_res["id"])
-        return post_id, None, resp.status_code
+        return post_id, None, resp.status_code, None
     except httpx.TimeoutException as e:
-        return None, f"Timeout: {e}", None
+        return None, f"Timeout: {e}", None, None
     except httpx.RequestError as e:
-        return None, str(e), getattr(getattr(e, "response", None), "status_code", None)
+        return None, str(e), getattr(getattr(e, "response", None), "status_code", None), None
     except Exception as e:
-        return None, str(e), None
+        return None, str(e), None, None
 
 
 async def list_publish_logs(
