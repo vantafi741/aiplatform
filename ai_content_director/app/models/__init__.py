@@ -13,6 +13,7 @@ from app.models.kb_item import KbItem
 from app.models.ai_usage_log import AiUsageLog
 from app.models.lead_signal import LeadSignal
 from app.models.content_asset import ContentAsset
+from app.models.asset_summary import AssetSummary
 
 __all__ = [
     "Tenant",
@@ -29,4 +30,5 @@ __all__ = [
     "AiUsageLog",
     "LeadSignal",
     "ContentAsset",
+    "AssetSummary",
 ]

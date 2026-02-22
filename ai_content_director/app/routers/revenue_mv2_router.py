@@ -39,6 +39,7 @@ async def post_content_generate(
             tenant_id=payload.tenant_id,
             plan_id=payload.plan_id,
             day=payload.day,
+            asset_id=payload.asset_id,
         )
         return ContentGenerateResponse(content=ContentItemOut.model_validate(item))
     except ValueError as e:
@@ -46,6 +47,11 @@ async def post_content_generate(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e).replace("_", " "),
+            ) from e
+        if str(e) == "asset_not_found":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Asset not found",
             ) from e
         if str(e) == "day_not_in_plan":
             raise HTTPException(

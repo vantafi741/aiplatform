@@ -23,6 +23,7 @@ from app.routers import (
     gdrive_assets_router,
     facebook_webhook_router,
     leads_router,
+    media_router,
 )
 
 logger = get_logger(__name__)
@@ -63,6 +64,7 @@ app.include_router(kb_router)
 app.include_router(gdrive_assets_router)
 app.include_router(facebook_webhook_router)
 app.include_router(leads_router)
+app.include_router(media_router)
 
 
 @app.get("/")

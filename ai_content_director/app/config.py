@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     openai_timeout_seconds: int = Field(default=45, alias="OPENAI_TIMEOUT_SECONDS")
     openai_max_retries: int = Field(default=2, alias="OPENAI_MAX_RETRIES")
     openai_temperature: float = Field(default=0.7, alias="OPENAI_TEMPERATURE")
+    openai_vision_model: str = Field(default="gpt-4o-mini", alias="OPENAI_VISION_MODEL")
     # Cost guard: daily budget per tenant (USD). Vượt → fallback template, không gọi OpenAI.
     daily_budget_usd: float = Field(default=2.0, alias="DAILY_BUDGET_USD")
     # Giá USD / 1M tokens (tùy chọn; không set thì dùng DEFAULT_*).
