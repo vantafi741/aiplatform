@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.logging_config import get_logger
 from app.models import GeneratedPlan, RevenueContentItem, Tenant
+from app.services.asset_summary_service import get_or_create_asset_summary
 from app.services.ai_usage_service import log_usage
 from app.services.llm_service import LLMService
 from app.services.onboarding_industry_service import get_industry_profile_by_tenant
@@ -73,6 +74,7 @@ async def generate_content(
     tenant_id: UUID,
     plan_id: UUID,
     day: int,
+    asset_id: Optional[UUID] = None,
 ) -> RevenueContentItem:
     """
     Generate one content item for (tenant, plan, day).
@@ -109,9 +111,30 @@ async def generate_content(
     model_used: Optional[str] = None
     settings = get_settings()
     llm = LLMService(settings)
+    summary_row = None
+    media_summary_context: Optional[str] = None
+
+    if asset_id is not None:
+        summary_row, _cached = await get_or_create_asset_summary(
+            db,
+            tenant_id=tenant_id,
+            asset_id=asset_id,
+        )
+        media_summary_context = summary_row.summary
 
     try:
-        out, usage_info = await llm.generate_single_content(brand_context, topic, content_angle)
+        effective_content_angle = content_angle
+        if media_summary_context:
+            # Bắt buộc generator phải có ngữ cảnh media trước khi viết nội dung.
+            effective_content_angle = (
+                f"{content_angle}\n"
+                f"[MEDIA SUMMARY CONTEXT] {media_summary_context}"
+            ).strip()
+        out, usage_info = await llm.generate_single_content(
+            brand_context,
+            topic,
+            effective_content_angle,
+        )
         prompt_tokens = usage_info.get("prompt_tokens", 0)
         completion_tokens = usage_info.get("completion_tokens", 0)
         total_tokens = usage_info.get("total_tokens", 0)
@@ -144,6 +167,20 @@ async def generate_content(
         hashtags=hashtags,
         confidence_score=confidence,
         approval_status=approval_status,
+        asset_id=asset_id,
+        summary_id=(summary_row.id if summary_row else None),
+        summary_snapshot_json=(
+            {
+                "summary_id": str(summary_row.id),
+                "summary": summary_row.summary,
+                "confidence_score": float(summary_row.confidence_score or 0.0),
+                "suggested_angle": summary_row.suggested_angle,
+                "suggested_tone": summary_row.suggested_tone,
+                "insights_json": summary_row.insights_json,
+            }
+            if summary_row
+            else None
+        ),
     )
     if item.content_type not in ("POST", "REEL", "CAROUSEL"):
         item.content_type = "POST"

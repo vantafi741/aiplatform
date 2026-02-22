@@ -1,7 +1,7 @@
 """Revenue MVP Module 2: content item from generated_plan (plan -> content)."""
 import uuid
 from datetime import datetime
-from typing import Any, List
+from typing import Any, List, Optional
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -43,6 +43,17 @@ class RevenueContentItem(Base):
     hashtags: Mapped[List[str]] = mapped_column(JSONB, nullable=False)
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
     approval_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("content_assets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    summary_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("asset_summaries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    summary_snapshot_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

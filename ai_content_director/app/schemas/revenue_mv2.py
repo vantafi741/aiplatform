@@ -1,7 +1,7 @@
 """Schemas for Revenue MVP Module 2: Content Generator (plan -> content items)."""
 from datetime import datetime
 from enum import Enum
-from typing import List
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -30,6 +30,7 @@ class ContentGenerateRequest(BaseModel):
     tenant_id: UUID = Field(..., description="Tenant UUID")
     plan_id: UUID = Field(..., description="Generated plan UUID")
     day: int = Field(..., ge=1, le=30, description="Day 1..30 in the plan")
+    asset_id: Optional[UUID] = Field(default=None, description="Optional content_assets.id để bám media summary")
 
     model_config = {"extra": "forbid"}
 
@@ -49,6 +50,9 @@ class ContentItemOut(BaseModel):
     hashtags: List[str]
     confidence_score: float
     approval_status: str
+    asset_id: Optional[UUID] = None
+    summary_id: Optional[UUID] = None
+    summary_snapshot_json: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 
