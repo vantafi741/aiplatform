@@ -29,7 +29,9 @@ async def post_gdrive_ingest(
     Trả về count_ingested, count_invalid.
     """
     try:
-        count_ingested, count_invalid = await ingest_ready_assets(db, tenant_id=payload.tenant_id)
+        count_ingested, count_invalid, count_skipped = await ingest_ready_assets(
+            db, tenant_id=payload.tenant_id
+        )
     except ValueError as e:
         err = str(e)
         if "GDRIVE_SA_JSON_PATH" in err or "GDRIVE_READY" in err or "GDRIVE_PROCESSED" in err or "GDRIVE_REJECTED" in err:
@@ -42,6 +44,7 @@ async def post_gdrive_ingest(
         tenant_id=payload.tenant_id,
         count_ingested=count_ingested,
         count_invalid=count_invalid,
+        count_skipped=count_skipped,
     )
 
 

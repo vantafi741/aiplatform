@@ -18,6 +18,7 @@ class GdriveIngestResponse(BaseModel):
     tenant_id: UUID
     count_ingested: int = Field(..., description="Số asset đã tải và ghi cached")
     count_invalid: int = Field(..., description="Số file không hợp lệ (đã chuyển REJECTED)")
+    count_skipped: int = Field(0, description="Số file bị bỏ qua do trùng/existing")
 
 
 class ContentAssetOut(BaseModel):
