@@ -67,6 +67,9 @@ services:
   n8n:
     image: n8nio/n8n:latest
     container_name: ai-ecosystem-n8n
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
       - "5678:5678"
     environment:
@@ -74,7 +77,10 @@ services:
       N8N_PORT: "5678"
       N8N_PROTOCOL: http
       WEBHOOK_URL: http://localhost:5678/
-      GENERIC_TIMEZONE: UTC
+      N8N_TIMEZONE: ${N8N_TIMEZONE:-Asia/Ho_Chi_Minh}
+      GENERIC_TIMEZONE: ${N8N_TIMEZONE:-Asia/Ho_Chi_Minh}
+      API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+      TENANT_ID: ${TENANT_ID:-}
     volumes:
       - n8n_data:/home/node/.n8n
     healthcheck:

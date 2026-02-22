@@ -1,0 +1,61 @@
+{
+  "name": "Phase 2.2.6 Drive to Facebook",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "cron-phase-226",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        280,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const tenantId = $env.TENANT_ID;\nconst apiBaseUrl = ($env.API_BASE_URL || 'http://api:8000').replace(/\\/$/, '');\nconst timezone = $env.N8N_TIMEZONE || 'Asia/Ho_Chi_Minh';\n\nif (!tenantId) {\n  throw new Error('TENANT_ID env is required for phase_2_2_6 workflow');\n}\n\nconst state = this.getWorkflowStaticData('global');\nif (!Array.isArray(state.processed_asset_ids)) {\n  state.processed_asset_ids = [];\n}\nif (!state.plan_id) {\n  state.plan_id = null;\n}\nif (!Number.isInteger(state.day_counter) || state.day_counter < 1 || state.day_counter > 30) {\n  state.day_counter = 1;\n}\n\nconst processedSet = new Set(state.processed_asset_ids);\nconst logs = [];\n\nconst request = async (method, path, { body, qs } = {}) => {\n  const options = {\n    method,\n    url: `${apiBaseUrl}${path}`,\n    json: true,\n    timeout: 45000,\n  };\n  if (body !== undefined) {\n    options.body = body;\n  }\n  if (qs !== undefined) {\n    options.qs = qs;\n  }\n  return this.helpers.httpRequest(options);\n};\n\nconst runAt = new Date().toISOString();\n\nconst ingestResp = await request('POST', '/api/gdrive/ingest', {\n  body: { tenant_id: tenantId },\n});\nlogs.push({\n  step: 'ingest',\n  ok: true,\n  response: ingestResp,\n});\n\nconst assetsResp = await request('GET', '/api/assets', {\n  qs: { tenant_id: tenantId, status: 'cached' },\n});\nconst cachedAssets = Array.isArray(assetsResp.assets) ? assetsResp.assets : [];\n\nconst newAssets = cachedAssets\n  .filter((asset) => asset && asset.id && !processedSet.has(asset.id))\n  .slice(0, 3);\n\nlogs.push({\n  step: 'select_assets',\n  ok: true,\n  total_cached: cachedAssets.length,\n  selected_count: newAssets.length,\n  selected_ids: newAssets.map((a) => a.id),\n});\n\nif (newAssets.length === 0) {\n  return [\n    {\n      json: {\n        ok: true,\n        message: 'No new assets to process',\n        tenant_id: tenantId,\n        api_base_url: apiBaseUrl,\n        timezone,\n        run_at: runAt,\n        plan_id: state.plan_id,\n        day_counter: state.day_counter,\n        processed_asset_count: state.processed_asset_ids.length,\n        logs,\n      },\n    },\n  ];\n}\n\nfor (const asset of newAssets) {\n  const assetLog = {\n    asset_id: asset.id,\n    status: 'started',\n  };\n  logs.push(assetLog);\n\n  try {\n    const analyzeResp = await request('POST', '/api/media/analyze', {\n      body: { tenant_id: tenantId, asset_id: asset.id },\n    });\n    assetLog.media_analyze = {\n      ok: true,\n      summary_id: analyzeResp.summary_id,\n      cached: analyzeResp.cached,\n      confidence_score: analyzeResp.confidence_score,\n    };\n\n    if (!state.plan_id) {\n      const planGenerate = await request('POST', '/api/plans/generate', {\n        body: { tenant_id: tenantId },\n      });\n      const generatedPlanId = planGenerate?.plan?.id;\n      if (!generatedPlanId) {\n        throw new Error('plan_id missing in /api/plans/generate response');\n      }\n\n      await request('POST', `/api/plans/${generatedPlanId}/materialize`, {\n        body: { tenant_id: tenantId },\n      });\n\n      state.plan_id = generatedPlanId;\n      assetLog.plan_bootstrap = {\n        ok: true,\n        plan_id: state.plan_id,\n      };\n    }\n\n    const currentDay = state.day_counter;\n\n    const contentResp = await request('POST', '/api/content/generate', {\n      body: {\n        tenant_id: tenantId,\n        plan_id: state.plan_id,\n        day: currentDay,\n        asset_id: asset.id,\n      },\n    });\n\n    const contentId = contentResp?.content?.id;\n    if (!contentId) {\n      throw new Error('content_id missing in /api/content/generate response');\n    }\n\n    const publishResp = await request('POST', '/publish/facebook', {\n      body: {\n        tenant_id: tenantId,\n        content_id: contentId,\n        use_latest_asset: true,\n      },\n    });\n\n    if ((publishResp?.status || '').toLowerCase() === 'fail') {\n      throw new Error(`publish failed: ${publishResp?.error_message || 'unknown_error'}`);\n    }\n\n    processedSet.add(asset.id);\n    state.processed_asset_ids = Array.from(processedSet).slice(-5000);\n    state.day_counter = currentDay >= 30 ? 1 : currentDay + 1;\n\n    assetLog.status = 'published';\n    assetLog.content_id = contentId;\n    assetLog.publish_status = publishResp?.status || 'success';\n    assetLog.day_used = currentDay;\n    assetLog.next_day_counter = state.day_counter;\n  } catch (error) {\n    assetLog.status = 'failed';\n    assetLog.error = error.message || String(error);\n  }\n}\n\nreturn [\n  {\n    json: {\n      ok: true,\n      tenant_id: tenantId,\n      api_base_url: apiBaseUrl,\n      timezone,\n      run_at: runAt,\n      plan_id: state.plan_id,\n      day_counter: state.day_counter,\n      processed_asset_count: state.processed_asset_ids.length,\n      selected_assets: newAssets.map((a) => a.id),\n      logs,\n    },\n  },\n];"
+      },
+      "id": "code-phase-226-pipeline",
+      "name": "Run Drive To Facebook Pipeline",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Run Drive To Facebook Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
