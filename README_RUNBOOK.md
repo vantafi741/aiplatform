@@ -43,6 +43,50 @@ API_ENV_FILE=/opt/aiplatform/secrets/.env.prod docker compose -f docker-compose.
 bash scripts/check_secrets_in_repo.sh
 ```
 
+## 1.1) Release & Deploy flow
+
+### PC/Cursor (tao release tag)
+
+```bash
+cd /path/to/ai-ecosystem
+bash scripts/pin_release.sh vX.Y.Z
+```
+
+Script se:
+- tao annotated tag
+- push tag len `origin`
+- in ra lenh deploy tag cho VPS
+
+### VPS (deploy theo tag hoac branch)
+
+```bash
+cd /opt/aiplatform
+bash scripts/deploy_vps.sh vX.Y.Z
+```
+
+Hoac deploy branch:
+
+```bash
+bash scripts/deploy_vps.sh feature/lead-gdrive-assets
+```
+
+Deploy script tu dong:
+- fetch + checkout ref
+- compose down/up --build
+- health check retry
+- alembic upgrade head
+- smoke pipeline (neu co `TENANT_ID`)
+- audit runtime report
+
+### Rollback (deploy lai tag cu)
+
+```bash
+cd /opt/aiplatform
+bash scripts/deploy_vps.sh v0.0.9
+```
+
+Rollback theo tag la cach an toan nhat cho operator non-IT.
+
 ### Port
 
 | Service   | Port (dev) | Ghi chu                    |
