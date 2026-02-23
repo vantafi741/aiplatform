@@ -17,9 +17,9 @@ Muc tieu: Fresh machine -> deploy trong ~15 phut. Core: ai_content_director (Fas
 # Clone repo
 git clone <repo_url> ai-ecosystem && cd ai-ecosystem
 
-# Tao .env cho app (copy tu ai_content_director/.env.example)
-cp ai_content_director/.env.example ai_content_director/.env
-# Sua DATABASE_URL, REDIS_URL neu can (trong Docker dung postgres:5432, redis:6379)
+# Tao env local (single source env file cho service api)
+cp .env.example .env.local
+# Sua key can thiet trong .env.local (OPENAI/FB/GDRIVE...)
 
 # Khoi dong stack
 docker compose up -d
@@ -32,12 +32,15 @@ curl -s http://localhost:8000/api/healthz
 curl -s http://localhost:8000/api/readyz
 ```
 
-Production: dung file prod va env production.
+Production: env nam ngoai repo.
 
 ```bash
-# Tao ai_content_director/.env voi APP_ENV=production, DATABASE_URL, REDIS_URL (noi bo container)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
+# Tao file /opt/aiplatform/secrets/.env.prod (copy tu .env.example, dien secret that)
+API_ENV_FILE=/opt/aiplatform/secrets/.env.prod docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+API_ENV_FILE=/opt/aiplatform/secrets/.env.prod docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
+
+# Quet nguy co secret trong repo
+bash scripts/check_secrets_in_repo.sh
 ```
 
 ### Port
@@ -45,9 +48,47 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api ale
 | Service   | Port (dev) | Ghi chu                    |
 |-----------|------------|-----------------------------|
 | API       | 8000       | FastAPI                     |
-| Postgres  | 5432       | Prod: khong expose ra host  |
-| Redis     | 6379       | Prod: khong expose ra host  |
-| n8n       | 5678       | Control plane / workflow    |
+| Postgres  | 5433       | map 127.0.0.1:5433 -> 5432  |
+| Redis     | 6380       | map 127.0.0.1:6380 -> 6379  |
+| n8n       | 5679       | map 5679 -> 5678            |
+
+### Local run nhanh (operator style)
+
+```bash
+cd /opt/aiplatform
+cp .env.example .env.local
+docker compose up -d --build
+docker compose run --rm api alembic upgrade head
+docker compose ps
+curl -s http://127.0.0.1:8000/api/healthz
+```
+
+### Troubleshooting: port conflict tren Windows
+
+Neu bi loi "port is already allocated", giu nguyen map port trong `docker-compose.yml`:
+- Postgres: `127.0.0.1:5433:5432`
+- Redis: `127.0.0.1:6380:6379`
+- n8n: `5679:5678`
+
+Sau khi sua/kiem tra port:
+
+```bash
+docker compose down
+docker compose up -d
+docker compose ps
+```
+
+### Alembic multiple heads da duoc merge
+
+- Merge revision da co trong repo: `07a13d6fc732`
+- File: `ai_content_director/alembic/versions/07a13d6fc732_merge_heads_014_and_015.py`
+
+Kiem tra:
+
+```bash
+docker compose run --rm api alembic heads
+docker compose run --rm api alembic current
+```
 
 ---
 

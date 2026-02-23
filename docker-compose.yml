@@ -13,11 +13,11 @@ services:
     # TODO: Nếu dùng Nginx/Caddy, bind 127.0.0.1:8000:8000 và proxy từ 80/443.
     ports:
       - "8000:8000"
+    # Single source env file cho API:
+    # - Local:  ./.env.local
+    # - VPS:    /opt/aiplatform/secrets/.env.prod (set qua API_ENV_FILE)
     env_file:
-      - ./ai_content_director/.env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_content_director
-      REDIS_URL: redis://redis:6379/0
+      - ${API_ENV_FILE:-./.env.local}
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,7 +39,7 @@ services:
       POSTGRES_DB: ai_content_director
     # Chỉ bind localhost: không expose Postgres ra mạng (chỉ API container + host debug).
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -54,7 +54,7 @@ services:
     container_name: ai-ecosystem-redis
     # Chỉ bind localhost: không expose Redis ra mạng.
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -71,12 +71,12 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "5678:5678"
+      - "5679:5678"
     environment:
       N8N_HOST: localhost
       N8N_PORT: "5678"
       N8N_PROTOCOL: http
-      WEBHOOK_URL: http://localhost:5678/
+      WEBHOOK_URL: http://localhost:5679/
       N8N_TIMEZONE: ${N8N_TIMEZONE:-Asia/Ho_Chi_Minh}
       GENERIC_TIMEZONE: ${N8N_TIMEZONE:-Asia/Ho_Chi_Minh}
       API_BASE_URL: ${API_BASE_URL:-http://api:8000}
