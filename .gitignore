@@ -5,12 +5,18 @@ env/
 .env
 .env.*
 !.env.example
+# Explicit env policy
+.env.local
+.env.prod
 node_modules/
 .next/
 dist/
 
 # Audit report (reproducible: run scripts/audit_status.sh on VPS)
 REPORT_STATUS_VPS.md
+docs/SECRETS_SCAN_REPORT.md
+docs/.runtime_audit_raw.txt
 # Runtime / sensitive dirs (do not commit)
 data/
 secrets/ 
+/secrets/

@@ -114,9 +114,18 @@ python scripts/meta_post_test.py --message "Test"
 
 **App Mode:** App o che do Development chi admin/tester thay bai dang; chuyen Live de cong khai. Chi tiet: [docs/META_SETUP.md](docs/META_SETUP.md). Runbook day du: [README_RUNBOOK.md](README_RUNBOOK.md).
 
-## Bi?n m?i tr??ng (.env)
+## Bien moi truong (env)
 
-Chuẩn: Xem `ai_content_director/.env.example`. Quan trọng: `DATABASE_URL`, `OPENAI_API_KEY`, `REDIS_URL`. S4: `CONTENT_CACHE_TTL_SECONDS`, `DEEPSEEK_API_KEY` (t?y ch?n). **Meta/Facebook:** [docs/META_SETUP.md](docs/META_SETUP.md) ? c�ch l?y token, test Graph Explorer v� curl; kh�ng commit token.
+Chuan moi:
+- 1 template duy nhat: `/.env.example`
+- Local Docker: `/.env.local` (trong `.gitignore`)
+- VPS: `/opt/aiplatform/secrets/.env.prod` (ngoai repo)
+- Compose dung 1 env source qua `API_ENV_FILE` (mac dinh `./.env.local`)
+
+Bao mat:
+- Khong commit token/key that.
+- Quet nhanh: `bash scripts/check_secrets_in_repo.sh`
+- Rotate key khi nghi ngo lo: `docs/ROTATE_KEYS.md`
 
 ## Prompt Playbook v1
 
@@ -127,3 +136,10 @@ Template prompt v? brand rules + output_schema m?u: `docs/prompt_playbook_v1.jso
 - [README_ROOT.md](README_ROOT.md) – Platform Core Architecture v1
 - [docs/MVP_E2E_STEPS.md](docs/MVP_E2E_STEPS.md) – E2E + curl
 - [docs/CONSOLIDATION_CORE_ARCH_V1.md](docs/CONSOLIDATION_CORE_ARCH_V1.md) – Danh sách file xóa/sửa khi hợp nhất
+
+## Audit runtime trên VPS
+
+```bash
+bash scripts/audit_runtime_vps.sh
+cat docs/RUNTIME_AUDIT_REPORT.md
+```

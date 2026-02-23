@@ -5,10 +5,6 @@
 services:
   api:
     restart: unless-stopped
-    env_file:
-      - ./ai_content_director/.env
-    environment:
-      - APP_ENV=production
     healthcheck:
       interval: 15s
       timeout: 5s

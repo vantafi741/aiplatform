@@ -56,7 +56,7 @@ docker exec "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${PG_DB}" -c \
  WHERE id='${CONTENT_ID}';" >/dev/null
 
 echo "[INFO] Trigger run_publish_tick..."
-curl -sS -X POST "${API_BASE_URL}/scheduler/run_publish_tick" \
+curl -sS -X POST "${API_BASE_URL}/api/scheduler/run_publish_tick" \
   -H "Content-Type: application/json" \
   -d '{"batch_size":5}'
 echo

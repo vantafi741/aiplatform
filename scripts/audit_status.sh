@@ -90,13 +90,13 @@ report ""
 report_section "5) ENV (keys quan trọng, giá trị mask 4 đầu + 4 cuối)"
 report '```'
 ENV_FILE=""
-for f in "$REPO_ROOT/ai_content_director/.env" "$REPO_ROOT/.env"; do
+for f in "${API_ENV_FILE:-}" "$REPO_ROOT/.env.local" "$REPO_ROOT/.env" "$REPO_ROOT/ai_content_director/.env" "$REPO_ROOT/secrets/.env.prod" "/opt/aiplatform/secrets/.env.prod"; do
   [ -f "$f" ] && { ENV_FILE="$f"; break; }
 done
 if [ -n "$ENV_FILE" ]; then
   python3 "$REPO_ROOT/scripts/audit_status.py" mask_env "$ENV_FILE" 2>/dev/null >> "$REPORT_FILE" || true
 else
-  report "# No .env found at ai_content_director/.env or .env"
+  report "# No env file found (.env.local, API_ENV_FILE, /secrets/.env.prod, ...)"
 fi
 report '```'
 

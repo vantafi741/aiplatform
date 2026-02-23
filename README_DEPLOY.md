@@ -34,6 +34,16 @@ Neu that bai, script se exit code khac 0.
 5. Poll `GET /api/healthz` toi da 60 giay (co the config ENV).
 6. Chay `scripts/smoke_test.sh`.
 
+## ENV policy (single source)
+
+- Local PC: su dung **1 file** `/.env.local` (copy tu `/.env.example`).
+- VPS production: su dung **1 file** `/opt/aiplatform/secrets/.env.prod` (ngoai repo).
+- Compose doc env qua:
+  - `API_ENV_FILE=/opt/aiplatform/secrets/.env.prod docker compose ...`
+- Khong dat secret trong git. Quet nhanh:
+  - `bash scripts/check_secrets_in_repo.sh`
+  - Bao cao scan: `docs/SECRETS_SCAN_REPORT.md`
+
 ## ENV tuy chon cho deploy/smoke
 
 ```bash
